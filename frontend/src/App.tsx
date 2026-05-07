@@ -17,6 +17,17 @@ import TutorSchedule from './pages/TutorSchedule';
 import TutorStudents from './pages/TutorStudents';
 import TutorSettings from './pages/TutorSettings';
 
+// Course Pages
+import MyCourses from './pages/MyCourses';
+import CourseDetail from './pages/CourseDetail';
+import { TutorCourseList, TutorCourseDetail } from './pages/TutorCourseManagement';
+
+// Admin Pages
+import AdminLayout from './components/layout/AdminLayout';
+import AdminDashboard from './pages/Admin/Dashboard';
+import TutorManagement from './pages/Admin/TutorManagement';
+import UserManagement from './pages/Admin/UserManagement';
+
 function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -34,6 +45,10 @@ function App() {
               <Route path="/register/student" element={<StudentRegister />} />
               <Route path="/register/tutor" element={<TutorRegister />} />
               <Route path="/verify-otp" element={<VerifyOTP />} />
+
+              {/* Student Course Pages */}
+              <Route path="/my-courses" element={<MyCourses />} />
+              <Route path="/my-courses/:id" element={<CourseDetail />} />
             </Route>
 
             {/* Tutor Portal Pages (Custom Layout) */}
@@ -42,6 +57,16 @@ function App() {
               <Route path="schedule" element={<TutorSchedule />} />
               <Route path="students" element={<TutorStudents />} />
               <Route path="settings" element={<TutorSettings />} />
+              <Route path="courses" element={<TutorCourseList />} />
+              <Route path="courses/:id" element={<TutorCourseDetail />} />
+            </Route>
+
+            {/* Admin Portal Pages */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route path="dashboard" element={<AdminDashboard />} />
+              <Route path="tutors" element={<TutorManagement />} />
+              <Route path="users" element={<UserManagement />} />
+              <Route index element={<AdminDashboard />} />
             </Route>
           </Routes>
         </div>

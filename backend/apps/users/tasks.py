@@ -30,3 +30,17 @@ def send_otp_email(email):
         fail_silently=False,
     )
     return True
+
+@shared_task
+def send_account_lock_email(email, reason):
+    subject = 'TutorMatch - Thông báo khóa tài khoản'
+    message = f'Chào bạn,\n\nChúng tôi lấy làm tiếc phải thông báo rằng tài khoản gia sư của bạn đã bị tạm khóa.\n\nLý do: {reason}\n\nVì lý do này, bạn không thể đăng nhập hoặc nhận lớp mới lúc này. Nếu có bất kỳ thắc mắc nào, vui lòng liên hệ bộ phận hỗ trợ.\n\nTrân trọng,\nĐội ngũ TutorMatch.'
+    
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [email],
+        fail_silently=False,
+    )
+    return True

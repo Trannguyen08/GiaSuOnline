@@ -33,6 +33,8 @@ INSTALLED_APPS = [
     'apps.bookings',
     'apps.notifications',
     'apps.chat',
+    'apps.admin_portal',
+    'apps.courses',
 ]
 
 MIDDLEWARE = [

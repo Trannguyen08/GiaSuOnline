@@ -8,6 +8,8 @@ urlpatterns = [
     path('api/auth/', include('apps.users.urls')),
     path('api/tutors/', include('apps.tutors.urls')),
     path('api/bookings/', include('apps.bookings.urls')),
+    path('api/admin/', include('apps.admin_portal.urls')),
+    path('api/courses/', include('apps.courses.urls')),
 ]
 
 if settings.DEBUG:
