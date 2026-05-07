@@ -5,7 +5,26 @@ import client from '../../api/client';
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const navigate = useNavigate();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await client.post('auth/login/', { email, password });
+      
+      localStorage.setItem('access_token', res.data.access);
+      localStorage.setItem('refresh_token', res.data.refresh);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
+      
+      alert('Đăng nhập thành công!');
+      navigate('/');
+    } catch (error: any) {
+      console.error('Login error:', error);
+      alert(error.response?.data?.error || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.');
+    }
+  };
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
@@ -34,13 +53,16 @@ const Login: React.FC = () => {
           <h1 className="text-3xl font-bold text-[#312e81] mb-2">Chào mừng trở lại</h1>
           <p className="text-gray-500 text-sm mb-8">Tiếp tục hành trình học tập cùng TutorMatch.</p>
 
-          <form className="flex flex-col gap-5">
+          <form className="flex flex-col gap-5" onSubmit={handleLogin}>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Email</label>
               <input 
                 type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="example@gmail.com" 
                 className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] transition-all text-sm placeholder:text-gray-400"
+                required
               />
             </div>
             
@@ -52,8 +74,11 @@ const Login: React.FC = () => {
               <div className="relative">
                 <input 
                   type={showPassword ? "text" : "password"} 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••" 
                   className="w-full pl-4 pr-10 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] transition-all text-sm placeholder:text-gray-400"
+                  required
                 />
                 <button
                   type="button"
@@ -69,7 +94,7 @@ const Login: React.FC = () => {
               </div>
             </div>
 
-            <button type="button" className="w-full bg-[#5a5ce6] hover:bg-[#4b4de0] text-white font-medium py-3 rounded-lg mt-2 transition-all shadow-[0_4px_14px_0_rgba(90,92,230,0.39)] hover:shadow-[0_6px_20px_rgba(90,92,230,0.23)]">
+            <button type="submit" className="w-full bg-[#5a5ce6] hover:bg-[#4b4de0] text-white font-medium py-3 rounded-lg mt-2 transition-all shadow-[0_4px_14px_0_rgba(90,92,230,0.39)] hover:shadow-[0_6px_20px_rgba(90,92,230,0.23)]">
               Đăng nhập
             </button>
           </form>

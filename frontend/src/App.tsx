@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import Header from './components/layout/Header/Header';
 import Footer from './components/layout/Footer/Footer';
 import Login from './pages/Auth/Login';
@@ -8,24 +8,42 @@ import VerifyOTP from './pages/Auth/VerifyOTP';
 
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
+import Home from './pages/Home';
+import FindTutors from './pages/FindTutors';
+import TutorDetail from './pages/TutorDetail';
+import TutorLayout from './components/layout/TutorLayout';
+import TutorDashboard from './pages/TutorDashboard';
+import TutorSchedule from './pages/TutorSchedule';
+import TutorStudents from './pages/TutorStudents';
+import TutorSettings from './pages/TutorSettings';
+
 function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
   return (
     <GoogleOAuthProvider clientId={googleClientId}>
       <Router>
-        <div className="flex flex-col min-h-screen bg-gray-50">
-          <Header />
-          <main className="flex-1 flex items-stretch justify-center">
-            <Routes>
-              <Route path="/" element={<Navigate to="/login" replace />} />
+        <div className="flex flex-col min-h-screen bg-white">
+          <Routes>
+            {/* Main Layout Pages */}
+            <Route element={<><Header /><main className="flex-1 flex flex-col"><Outlet /></main><Footer /></>}>
+              <Route path="/" element={<Home />} />
+              <Route path="/find-tutors" element={<FindTutors />} />
+              <Route path="/tutor/:id" element={<TutorDetail />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register/student" element={<StudentRegister />} />
               <Route path="/register/tutor" element={<TutorRegister />} />
               <Route path="/verify-otp" element={<VerifyOTP />} />
-            </Routes>
-          </main>
-          <Footer />
+            </Route>
+
+            {/* Tutor Portal Pages (Custom Layout) */}
+            <Route path="/tutor" element={<TutorLayout />}>
+              <Route path="dashboard" element={<TutorDashboard />} />
+              <Route path="schedule" element={<TutorSchedule />} />
+              <Route path="students" element={<TutorStudents />} />
+              <Route path="settings" element={<TutorSettings />} />
+            </Route>
+          </Routes>
         </div>
       </Router>
     </GoogleOAuthProvider>
