@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Users, 
@@ -11,7 +11,6 @@ import {
   BarChart3, 
   Settings,
   Menu,
-  X,
   Search,
   Bell,
   ChevronDown,
@@ -20,14 +19,18 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useToast } from '../ui/Toast';
 
 const AdminLayout: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const menuItems = [
     { name: 'Tổng quan', path: '/admin/dashboard', icon: LayoutDashboard },
+    { name: 'Duyệt gia sư', path: '/admin/tutor-approvals', icon: ShieldAlert },
     { name: 'Quản lý gia sư', path: '/admin/tutors', icon: GraduationCap },
     { name: 'Quản lý người dùng', path: '/admin/users', icon: Users },
     { name: 'Quản lý lớp học', path: '/admin/classes', icon: BookOpen },
@@ -41,6 +44,15 @@ const AdminLayout: React.FC = () => {
   const getPageTitle = () => {
     const item = menuItems.find(item => item.path === location.pathname);
     return item ? item.name : 'Admin Panel';
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+    setIsProfileOpen(false);
+    showToast('Đã đăng xuất tài khoản admin.', 'success');
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -110,7 +122,7 @@ const AdminLayout: React.FC = () => {
               </div>
             )}
             {!isSidebarCollapsed && (
-              <button className="ml-auto text-slate-400 hover:text-red-500 transition-colors">
+              <button onClick={handleLogout} className="ml-auto text-slate-400 hover:text-red-500 transition-colors">
                 <LogOut className="w-4 h-4" />
               </button>
             )}
@@ -194,7 +206,7 @@ const AdminLayout: React.FC = () => {
                         <Settings className="w-4 h-4 mr-3" /> Đổi mật khẩu
                       </button>
                       <hr className="my-1 border-slate-100" />
-                      <button className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                      <button onClick={handleLogout} className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50">
                         <LogOut className="w-4 h-4 mr-3" /> Đăng xuất
                       </button>
                     </motion.div>

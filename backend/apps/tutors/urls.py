@@ -1,5 +1,10 @@
 from django.urls import path
-from .views import TutorSettingsView, SubjectListView
+from .views import (
+    TutorSettingsView,
+    SubjectListView,
+    TutorPublicListView,
+    TutorPublicDetailView,
+)
 
 urlpatterns = [
     path('settings/', TutorSettingsView.as_view(), name='tutor-settings'),

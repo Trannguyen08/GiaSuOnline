@@ -7,7 +7,6 @@ import {
   ArrowUpRight, 
   ArrowDownRight 
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useAdminStore } from '../../store/useAdminStore';
 
 const StatCard = ({ title, value, change, icon: Icon, color }: any) => (

@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { adminService } from '../services/adminService';
 
+const toArray = (data: any) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+};
+
 interface AdminState {
   stats: any | null;
   tutors: any[];
@@ -13,7 +20,7 @@ interface AdminState {
   fetchTutors: (params?: any) => Promise<void>;
   fetchUsers: (params?: any) => Promise<void>;
   tutorAction: (id: number, action: string, data?: any) => Promise<void>;
-  userAction: (id: number, action: string) => Promise<void>;
+  userAction: (id: number, action: string, refreshParams?: any) => Promise<void>;
 }
 
 export const useAdminStore = create<AdminState>((set, get) => ({
@@ -37,7 +44,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const tutors = await adminService.fetchTutors(params);
-      set({ tutors, isLoading: false });
+      set({ tutors: toArray(tutors), isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
@@ -47,7 +54,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const users = await adminService.fetchUsers(params);
-      set({ users, isLoading: false });
+      set({ users: toArray(users), isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
     }
@@ -60,16 +67,18 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       get().fetchTutors();
     } catch (error: any) {
       set({ error: error.message });
+      throw error;
     }
   },
 
-  userAction: async (id, action) => {
+  userAction: async (id, action, refreshParams) => {
     try {
       await adminService.performUserAction(id, action);
       // Refresh current list
-      get().fetchUsers();
+      await get().fetchUsers(refreshParams);
     } catch (error: any) {
       set({ error: error.message });
+      throw error;
     }
   }
 }));

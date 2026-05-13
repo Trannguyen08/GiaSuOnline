@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Calendar, CheckCircle2, Clock, GraduationCap, TrendingUp, User } from 'lucide-react';
+import { BookOpen, Calendar, CheckCircle2, Clock, GraduationCap, TrendingUp } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useStudentCourses } from '../hooks/useCourses';
 

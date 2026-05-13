@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useTutorStore } from '../store/useTutorStore';
 import { validateRequired } from '../utils/validation';
-import { Save, Eye, Camera, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { Save, Eye, Camera, Plus, Trash2 } from 'lucide-react';
+import { useToast } from '../components/ui/Toast';
 
 const TutorSettings: React.FC = () => {
   const { profile, fetchProfile, updateProfile, isLoading } = useTutorStore();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState<any>(null);
 
   useEffect(() => {
@@ -17,11 +19,11 @@ const TutorSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!validateRequired(formData.full_name)) {
-      alert("Họ tên là bắt buộc");
+      showToast("Họ tên là bắt buộc", 'error');
       return;
     }
     await updateProfile(formData);
-    alert("Đã cập nhật hồ sơ thành công!");
+    showToast("Đã cập nhật hồ sơ thành công!", 'success');
   };
 
   if (!formData) return <div className="flex items-center justify-center h-screen text-slate-400">Đang tải hồ sơ...</div>;

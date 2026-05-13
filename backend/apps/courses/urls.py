@@ -3,6 +3,13 @@ from .views import (
     StudentCourseListView, StudentCourseDetailView, StudentSessionCompleteView,
     TutorCourseListView, TutorCourseDetailView,
     TutorSessionUpdateView, TutorSessionMaterialUploadView,
+    TutorSessionMaterialPresignView, TutorSessionMaterialCompleteView,
+    TutorStudyRoomListCreateView, TutorStudyRoomDetailView,
+    TutorStudyRoomStudentsView, TutorStudyRoomSessionCreateView,
+    TutorStudyRoomSessionDetailView, TutorStudyRoomMaterialView,
+    TutorStudyRoomMaterialPresignView, TutorStudyRoomMaterialCompleteView,
+    StudentStudyRoomListView, StudentStudyRoomDetailView,
+    StudentStudyRoomSessionReadView,
 )
 
 urlpatterns = [
@@ -16,4 +23,19 @@ urlpatterns = [
     path('tutor/<int:pk>/', TutorCourseDetailView.as_view(), name='tutor-course-detail'),
     path('tutor/sessions/<int:session_id>/update/', TutorSessionUpdateView.as_view(), name='tutor-session-update'),
     path('tutor/sessions/<int:session_id>/materials/', TutorSessionMaterialUploadView.as_view(), name='tutor-session-materials'),
+    path('tutor/sessions/<int:session_id>/materials/presign/', TutorSessionMaterialPresignView.as_view(), name='tutor-session-material-presign'),
+    path('tutor/materials/<int:material_id>/complete/', TutorSessionMaterialCompleteView.as_view(), name='tutor-session-material-complete'),
+
+    # Study rooms
+    path('rooms/tutor/', TutorStudyRoomListCreateView.as_view(), name='tutor-study-rooms'),
+    path('rooms/tutor/<int:pk>/', TutorStudyRoomDetailView.as_view(), name='tutor-study-room-detail'),
+    path('rooms/tutor/<int:pk>/students/', TutorStudyRoomStudentsView.as_view(), name='tutor-study-room-students'),
+    path('rooms/tutor/<int:pk>/sessions/', TutorStudyRoomSessionCreateView.as_view(), name='tutor-study-room-sessions'),
+    path('rooms/tutor/sessions/<int:session_id>/', TutorStudyRoomSessionDetailView.as_view(), name='tutor-study-room-session-detail'),
+    path('rooms/tutor/sessions/<int:session_id>/materials/', TutorStudyRoomMaterialView.as_view(), name='tutor-study-room-materials'),
+    path('rooms/tutor/sessions/<int:session_id>/materials/presign/', TutorStudyRoomMaterialPresignView.as_view(), name='tutor-study-room-material-presign'),
+    path('rooms/tutor/materials/<int:material_id>/complete/', TutorStudyRoomMaterialCompleteView.as_view(), name='tutor-study-room-material-complete'),
+    path('rooms/student/', StudentStudyRoomListView.as_view(), name='student-study-rooms'),
+    path('rooms/student/<int:pk>/', StudentStudyRoomDetailView.as_view(), name='student-study-room-detail'),
+    path('rooms/student/sessions/<int:session_id>/read/', StudentStudyRoomSessionReadView.as_view(), name='student-study-room-session-read'),
 ]

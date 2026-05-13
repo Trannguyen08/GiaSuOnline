@@ -1,202 +1,445 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Plus, Search, Filter, Eye, CheckCircle2, XCircle, Lock, Unlock, Trash2, Star, 
-  BookOpen, GraduationCap, MapPin, Mail, Phone, ChevronLeft, ChevronRight, X
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, Search, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useAdminStore } from '../../store/useAdminStore';
 import { formatDate } from '../../utils/format';
-import { validateEmail, validateRequired } from '../../utils/validation';
+import { useToast } from '../../components/ui/Toast';
 
-const StatusBadge = ({ status }: { status: string }) => {
-  const configs: any = {
-    pending: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 border-amber-200' },
-    active: { label: 'Hoạt động', className: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-    locked: { label: 'Bị khóa', className: 'bg-rose-100 text-rose-700 border-rose-200' },
-    rejected: { label: 'Từ chối', className: 'bg-slate-100 text-slate-700 border-slate-200' }
-  };
-  const config = configs[status] || configs.pending;
-  return <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>{config.label}</span>;
+type TutorManagementProps = {
+  mode?: 'approval' | 'management';
 };
 
-const TutorManagement: React.FC = () => {
+const normalizeText = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+
+const statusLabel: Record<string, string> = {
+  PENDING: 'Chờ duyệt',
+  APPROVED: 'Đang hoạt động',
+  REJECTED: 'Từ chối',
+  LOCKED: 'Bị khóa',
+};
+
+const StatusBadge = ({ tutor }: { tutor: any }) => {
+  const status = tutor.registration_status || tutor.status || 'PENDING';
+  const isLocked = tutor.user && tutor.user.is_active === false;
+  const effectiveStatus = isLocked ? 'LOCKED' : status;
+  const className =
+    effectiveStatus === 'APPROVED'
+      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      : effectiveStatus === 'PENDING'
+        ? 'bg-amber-100 text-amber-700 border-amber-200'
+        : effectiveStatus === 'LOCKED'
+          ? 'bg-rose-100 text-rose-700 border-rose-200'
+          : 'bg-slate-100 text-slate-700 border-slate-200';
+
+  return (
+    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${className}`}>
+      {statusLabel[effectiveStatus] || effectiveStatus}
+    </span>
+  );
+};
+
+const DetailRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="grid gap-1 py-3 text-sm">
+    <p className="font-bold text-slate-500">{label}</p>
+    <p className="break-words font-extrabold text-slate-900">{value}</p>
+  </div>
+);
+
+const TutorProfileModal = ({
+  tutor,
+  mode,
+  onClose,
+  onApprove,
+  onReject,
+  onLock,
+}: {
+  tutor: any;
+  mode: 'approval' | 'management';
+  onClose: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onLock: () => void;
+}) => {
+  const identityDocuments = [
+    ['CCCD mặt trước', tutor.id_front_url],
+    ['CCCD mặt sau', tutor.id_back_url],
+  ];
+
+  const renderMediaCard = (label: string, url?: string) => (
+    <a
+      href={url || undefined}
+      target="_blank"
+      rel="noreferrer"
+      className={`block overflow-hidden rounded-xl border border-slate-200 bg-white ${
+        url ? 'hover:border-blue-300 hover:shadow-sm' : 'pointer-events-none'
+      }`}
+    >
+      {url ? (
+        <img src={url} alt={label} className="h-36 w-full object-cover" />
+      ) : (
+        <div className="grid h-36 place-items-center bg-slate-50 text-sm font-semibold text-slate-400">
+          Chưa có
+        </div>
+      )}
+      <div className="border-t border-slate-100 px-3 py-2 text-sm font-bold text-slate-700">{label}</div>
+    </a>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-slate-950/55"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 18, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 18, scale: 0.97 }}
+        className="relative z-10 w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900">Thông tin đăng ký gia sư</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              {mode === 'approval' ? 'Kiểm tra hồ sơ trước khi duyệt.' : 'Thông tin chi tiết hồ sơ gia sư.'}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(90vh-148px)] overflow-y-auto bg-slate-50 p-6">
+          <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="flex items-center gap-4 border-b border-slate-100 pb-5">
+                <img
+                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(tutor.full_name || tutor.user_email || 'tutor')}`}
+                  alt={tutor.full_name}
+                  className="h-16 w-16 rounded-full border border-slate-200 bg-slate-50"
+                />
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-extrabold text-slate-900">{tutor.full_name}</h3>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    {tutor.qualification || 'Chưa cập nhật trình độ'}
+                  </p>
+                  <div className="mt-2">
+                    <StatusBadge tutor={tutor} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 divide-y divide-slate-100">
+                <DetailRow label="Email" value={tutor.user?.email || tutor.user_email || '---'} />
+                <DetailRow label="Số điện thoại" value={tutor.user?.phone || '---'} />
+                <DetailRow label="Ngày sinh" value={tutor.birthday ? formatDate(tutor.birthday) : '---'} />
+                <DetailRow label="Trình độ" value={tutor.qualification || '---'} />
+                <DetailRow label="Trường đại học" value={tutor.university || '---'} />
+                <DetailRow label="Địa chỉ" value={tutor.address || '---'} />
+                <DetailRow label="Ngày đăng ký" value={formatDate(tutor.created_at)} />
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="space-y-6">
+                <div>
+                  <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Căn cước</h4>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {identityDocuments.map(([label, url]) => renderMediaCard(label as string, url as string))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Bằng cấp</h4>
+                  <div className="max-w-sm">{renderMediaCard('Bằng cấp', tutor.degree_image_url)}</div>
+                </div>
+
+                <div>
+                  <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">
+                    Thành tích nổi bật
+                  </h4>
+                  {tutor.achievements?.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                      {tutor.achievements.map((item: any) => (
+                        <a
+                          key={item.id}
+                          href={item.image_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="overflow-hidden rounded-xl border border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm"
+                        >
+                          <img src={item.image_url} alt="Thành tích" className="h-28 w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm font-semibold text-slate-400">
+                      Chưa có thành tích nổi bật
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:flex-row sm:justify-end">
+          {mode === 'approval' ? (
+            <>
+              <button
+                onClick={onReject}
+                className="rounded-xl border border-rose-200 bg-white px-8 py-3 font-extrabold text-rose-600 hover:bg-rose-50"
+              >
+                Từ chối
+              </button>
+              <button
+                onClick={onApprove}
+                className="rounded-xl bg-emerald-600 px-10 py-3 font-extrabold text-white hover:bg-emerald-700"
+              >
+                Duyệt hồ sơ
+              </button>
+            </>
+          ) : (
+            <button onClick={onLock} className="rounded-xl bg-rose-600 px-8 py-3 font-extrabold text-white hover:bg-rose-700">
+              Khóa tài khoản
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+const TutorManagement: React.FC<TutorManagementProps> = ({ mode = 'management' }) => {
   const { tutors, isLoading, fetchTutors, tutorAction } = useAdminStore();
+  const { showToast } = useToast();
   const [selectedTutor, setSelectedTutor] = useState<any>(null);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
-  const [isLockModalOpen, setIsLockModalOpen] = useState(false);
   const [lockReason, setLockReason] = useState('');
-  const [tutorToLock, setTutorToLock] = useState<any>(null);
+  const [isLockModalOpen, setIsLockModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
-    fetchTutors();
-  }, [fetchTutors]);
+    fetchTutors(mode === 'approval' ? { status: 'PENDING' } : undefined);
+  }, [fetchTutors, mode]);
 
-  const handleTutorAction = (id: number, action: string, data?: any) => {
-    tutorAction(id, action, data).then(() => {
-      setIsDrawerOpen(false);
-      setIsLockModalOpen(false);
+  const filteredTutors = useMemo(() => {
+    const keyword = normalizeText(searchTerm.trim());
+    return (Array.isArray(tutors) ? tutors : [])
+      .filter((tutor) => {
+        const registrationStatus = tutor.registration_status || tutor.status;
+        if (mode === 'approval') return registrationStatus === 'PENDING';
+        return registrationStatus !== 'PENDING';
+      })
+      .filter((tutor) => {
+        if (statusFilter === 'active') return tutor.user?.is_active !== false && tutor.registration_status === 'APPROVED';
+        if (statusFilter === 'locked') return tutor.user?.is_active === false;
+        if (statusFilter === 'rejected') return tutor.registration_status === 'REJECTED';
+        if (statusFilter === 'pending') return tutor.registration_status === 'PENDING';
+        return true;
+      })
+      .filter((tutor) => {
+        if (!keyword) return true;
+        const haystack = normalizeText(
+          [
+            tutor.full_name,
+            tutor.university,
+            tutor.qualification,
+            tutor.user?.email,
+            tutor.user?.phone,
+            tutor.address,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
+        return haystack.includes(keyword);
+      });
+  }, [mode, searchTerm, statusFilter, tutors]);
+
+  const handleTutorAction = async (id: number, action: string, data?: any) => {
+    try {
+      await tutorAction(id, action, data);
       setSelectedTutor(null);
+      setIsLockModalOpen(false);
       setLockReason('');
-    });
-  };
-
-  const openLockModal = (tutor: any) => {
-    setTutorToLock(tutor);
-    setIsLockModalOpen(true);
-  };
-
-  const toggleSelectRow = (id: number) => {
-    setSelectedRows(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]);
+      const labels: Record<string, string> = {
+        approve: 'Đã duyệt hồ sơ gia sư.',
+        reject: 'Đã từ chối hồ sơ gia sư.',
+        lock: 'Đã khóa tài khoản gia sư.',
+      };
+      showToast(labels[action] || 'Thao tác thành công.', 'success');
+      await fetchTutors(mode === 'approval' ? { status: 'PENDING' } : undefined);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Thao tác thất bại.', 'error');
+    }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Quản lý gia sư</h1>
-          <p className="text-sm text-slate-500 mt-1">Quản lý hồ sơ và trạng thái hoạt động của gia sư.</p>
-        </div>
-        <button onClick={() => setIsAddModalOpen(true)} className="bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-all flex items-center gap-2">
-          <Plus className="w-5 h-5" /> Thêm gia sư
-        </button>
+      <div>
+        <h1 className="text-3xl font-extrabold text-slate-900">{mode === 'approval' ? 'Duyệt gia sư' : 'Quản lý gia sư'}</h1>
+        <p className="mt-1 text-sm font-medium text-slate-500">
+          {mode === 'approval' ? 'Xem và duyệt các hồ sơ gia sư mới đăng ký.' : 'Theo dõi trạng thái hoạt động của gia sư.'}
+        </p>
       </div>
 
-      {/* Table & Filters Content */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/30 flex flex-col lg:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input type="text" placeholder="Tìm kiếm gia sư..." className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100" />
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              type="text"
+              placeholder="Tìm theo tên, email, số điện thoại, trường học..."
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-semibold outline-none transition-all focus:bg-white focus:ring-2 focus:ring-blue-100"
+            />
           </div>
-          <div className="flex gap-2">
-            <select className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none"><option>Tất cả trạng thái</option></select>
-            <button className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium hover:bg-slate-50 transition-all">Lọc</button>
-          </div>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="all">Tất cả trạng thái</option>
+            {mode === 'approval' ? (
+              <option value="pending">Chờ duyệt</option>
+            ) : (
+              <>
+                <option value="active">Đang hoạt động</option>
+                <option value="locked">Bị khóa</option>
+                <option value="rejected">Từ chối</option>
+              </>
+            )}
+          </select>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[980px] text-left">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-6 py-4 w-12"><input type="checkbox" className="rounded border-slate-300" /></th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Gia sư</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Môn dạy</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Học vấn</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Ngày đk</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Trạng thái</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Thao tác</th>
+              <tr className="border-b border-slate-200 bg-slate-50">
+                <th className="px-6 py-4 text-xs font-extrabold uppercase tracking-widest text-slate-500">Gia sư</th>
+                <th className="px-6 py-4 text-xs font-extrabold uppercase tracking-widest text-slate-500">
+                  Trình độ / Trường đại học
+                </th>
+                <th className="px-6 py-4 text-xs font-extrabold uppercase tracking-widest text-slate-500">Email / Số điện thoại</th>
+                <th className="px-6 py-4 text-xs font-extrabold uppercase tracking-widest text-slate-500">Ngày ĐK</th>
+                <th className="px-6 py-4 text-xs font-extrabold uppercase tracking-widest text-slate-500">Trạng thái</th>
+                <th className="px-6 py-4 text-right text-xs font-extrabold uppercase tracking-widest text-slate-500">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={7} className="text-center py-10 text-slate-400">Đang tải dữ liệu...</td></tr>
-              ) : tutors.map((tutor) => (
-                <tr key={tutor.id} className="hover:bg-slate-50/50 cursor-pointer" onClick={() => { setSelectedTutor(tutor); setIsDrawerOpen(true); }}>
-                  <td className="px-6 py-4" onClick={e => e.stopPropagation()}><input type="checkbox" checked={selectedRows.includes(tutor.id)} onChange={() => toggleSelectRow(tutor.id)} /></td>
-                  <td className="px-6 py-4 font-semibold text-slate-800">{tutor.full_name}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tutor.subjects?.map((s: any) => s.subject_name).join(', ')}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{tutor.university}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{formatDate(tutor.user?.created_at)}</td>
-                  <td className="px-6 py-4"><StatusBadge status={tutor.registration_status?.toLowerCase()} /></td>
-                  <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => { setSelectedTutor(tutor); setIsDrawerOpen(true); }} className="p-2 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded-lg"><Eye className="w-4 h-4" /></button>
+                <tr>
+                  <td colSpan={6} className="py-12 text-center font-semibold text-slate-400">
+                    Đang tải dữ liệu...
                   </td>
                 </tr>
-              ))}
+              ) : filteredTutors.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center font-semibold text-slate-400">
+                    Không có hồ sơ phù hợp.
+                  </td>
+                </tr>
+              ) : (
+                filteredTutors.map((tutor) => (
+                  <tr key={tutor.id} className="cursor-pointer hover:bg-blue-50/30" onClick={() => setSelectedTutor(tutor)}>
+                    <td className="px-6 py-4">
+                      <div className="font-extrabold text-slate-900">{tutor.full_name}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-slate-700">{tutor.qualification || '---'}</div>
+                      <div className="mt-1 text-xs font-semibold text-slate-400">
+                        {tutor.university || 'Chưa cập nhật trường đại học'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-slate-700">{tutor.user?.email || tutor.user_email}</div>
+                      <div className="mt-1 text-sm text-slate-500">{tutor.user?.phone || '---'}</div>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-semibold text-slate-600">{formatDate(tutor.created_at)}</td>
+                    <td className="px-6 py-4">
+                      <StatusBadge tutor={tutor} />
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedTutor(tutor);
+                        }}
+                        className="rounded-xl p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                      >
+                        <Eye className="h-5 w-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Drawer & Modal integration... simplified for space, same logic */}
       <AnimatePresence>
-        {isDrawerOpen && selectedTutor && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/40 z-50" onClick={() => setIsDrawerOpen(false)} />
-            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="fixed right-0 top-0 h-full w-[480px] bg-white z-[60] shadow-2xl flex flex-col">
-               <div className="p-6 border-b flex items-center justify-between">
-                 <h2 className="text-xl font-bold">Hồ sơ gia sư</h2>
-                 <button onClick={() => setIsDrawerOpen(false)}><X className="w-6 h-6 text-slate-400" /></button>
-               </div>
-               <div className="p-6 flex-1 overflow-y-auto space-y-6">
-                 <div className="flex flex-col items-center">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedTutor.full_name}`} className="w-20 h-20 rounded-full border-2 border-slate-100" />
-                    <h3 className="text-xl font-bold mt-3">{selectedTutor.full_name}</h3>
-                    <p className="text-slate-500">{selectedTutor.qualification}</p>
-                 </div>
-                 <div className="space-y-4">
-                    <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Email</span><span className="font-medium">{selectedTutor.user?.email}</span></div>
-                    <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Kinh nghiệm</span><span className="font-medium">{selectedTutor.experience_years} năm</span></div>
-                    <div className="flex justify-between border-b pb-2"><span className="text-slate-500">Học phí</span><span className="font-medium">{selectedTutor.subjects?.[0]?.hourly_rate || '---'} VNĐ/giờ</span></div>
-                 </div>
-               </div>
-               <div className="p-6 border-t grid grid-cols-2 gap-3 bg-slate-50">
-                  {selectedTutor.registration_status === 'PENDING' ? (
-                    <>
-                      <button onClick={() => handleTutorAction(selectedTutor.id, 'approve')} className="py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700">Duyệt</button>
-                      <button onClick={() => handleTutorAction(selectedTutor.id, 'reject')} className="py-2.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold hover:bg-rose-100">Từ chối</button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700">Chỉnh sửa</button>
-                      <button onClick={() => openLockModal(selectedTutor)} className="py-2.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl font-bold hover:bg-rose-100">Khóa tài khoản</button>
-                    </>
-                  )}
-               </div>
-            </motion.div>
-          </>
+        {selectedTutor && (
+          <TutorProfileModal
+            tutor={selectedTutor}
+            mode={mode}
+            onClose={() => setSelectedTutor(null)}
+            onApprove={() => handleTutorAction(selectedTutor.id, 'approve')}
+            onReject={() => handleTutorAction(selectedTutor.id, 'reject')}
+            onLock={() => setIsLockModalOpen(true)}
+          />
         )}
       </AnimatePresence>
 
-      {/* Lock Reason Modal */}
       <AnimatePresence>
-        {isLockModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+        {isLockModalOpen && selectedTutor && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/60"
               onClick={() => setIsLockModalOpen(false)}
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }} 
-              animate={{ opacity: 1, scale: 1 }} 
-              exit={{ opacity: 0, scale: 0.95 }} 
-              className="bg-white rounded-3xl p-8 shadow-2xl w-full max-w-md relative z-10"
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="relative z-10 w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl"
             >
-              <h3 className="text-xl font-bold text-slate-800 mb-2">Khóa tài khoản gia sư</h3>
-              <p className="text-sm text-slate-500 mb-6">Vui lòng nhập lý do khóa. Lý do này sẽ được gửi đến email của gia sư.</p>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Lý do khóa</label>
-                  <textarea 
-                    rows={4}
-                    value={lockReason}
-                    onChange={(e) => setLockReason(e.target.value)}
-                    placeholder="VD: Vi phạm quy chuẩn cộng đồng, thông tin hồ sơ không chính xác..."
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-blue-100 outline-none transition-all resize-none"
-                  />
-                </div>
-                
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={() => setIsLockModalOpen(false)}
-                    className="flex-1 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-all"
-                  >
-                    Hủy
-                  </button>
-                  <button 
-                    onClick={() => handleTutorAction(tutorToLock.id, 'lock', { reason: lockReason })}
-                    disabled={!lockReason.trim() || isLoading}
-                    className="flex-1 py-3 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-700 transition-all shadow-lg shadow-rose-100 disabled:opacity-50"
-                  >
-                    {isLoading ? 'Đang xử lý...' : 'Xác nhận khóa'}
-                  </button>
-                </div>
+              <h3 className="text-xl font-extrabold text-slate-900">Khóa tài khoản gia sư</h3>
+              <p className="mt-2 text-sm text-slate-500">Nhập lý do khóa tài khoản để gửi thông báo cho gia sư.</p>
+              <textarea
+                rows={4}
+                value={lockReason}
+                onChange={(event) => setLockReason(event.target.value)}
+                className="mt-5 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium outline-none focus:ring-2 focus:ring-rose-100"
+                placeholder="VD: Hồ sơ không chính xác, vi phạm quy định..."
+              />
+              <div className="mt-5 flex gap-3">
+                <button
+                  onClick={() => setIsLockModalOpen(false)}
+                  className="flex-1 rounded-2xl bg-slate-100 py-3 font-extrabold text-slate-600 hover:bg-slate-200"
+                >
+                  Hủy
+                </button>
+                <button
+                  disabled={!lockReason.trim()}
+                  onClick={() => handleTutorAction(selectedTutor.id, 'lock', { reason: lockReason })}
+                  className="flex-1 rounded-2xl bg-rose-600 py-3 font-extrabold text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  Xác nhận khóa
+                </button>
               </div>
             </motion.div>
           </div>

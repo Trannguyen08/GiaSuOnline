@@ -24,6 +24,7 @@ from .serializers import (
     UserSerializer,
 )
 from .tasks import send_otp_email
+from .services.tutor_registration import register_tutor
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -159,8 +160,7 @@ class ResendOTPView(APIView):
         return Response({'message': 'Mã OTP mới đã được gửi.'}, status=status.HTTP_200_OK)
 
 
-from .utils.s3 import upload_file_to_s3
-from .models import OTP, TutorProfile, TutorAchievement
+from .models import OTP
 
 # ... (previous code)
 
@@ -175,71 +175,16 @@ class TutorRegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = request.data
-        files = request.FILES
-
-        email = data.get('email')
-        password = data.get('password')
-        
-        if User.objects.filter(email=email).exists():
-            return Response({'error': 'Email này đã được đăng ký.'}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
-            with transaction.atomic():
-                # 1. Create User
-                username = email.split('@')[0]
-                # Ensure uniqueness
-                original_username = username
-                counter = 1
-                while User.objects.filter(username=username).exists():
-                    username = f"{original_username}{counter}"
-                    counter += 1
+            profile = register_tutor(request.data, request.FILES)
 
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=password,
-                    phone=data.get('phone', ''),
-                    is_tutor=True,
-                    is_active=True, # Active but profile status will control login
-                    is_verified=False
-                )
+            return Response({
+                'message': 'Đăng ký hồ sơ gia sư thành công! Hồ sơ của bạn đang chờ quản trị viên phê duyệt.',
+                'email': profile.user.email
+            }, status=status.HTTP_201_CREATED)
 
-                # 2. Upload mandatory documents to S3
-                id_front_file = files.get('id_front')
-                id_back_file = files.get('id_back')
-                degree_file = files.get('degree')
-
-                id_front_url = upload_file_to_s3(id_front_file, "tutors/cccd") if id_front_file else None
-                id_back_url = upload_file_to_s3(id_back_file, "tutors/cccd") if id_back_file else None
-                degree_url = upload_file_to_s3(degree_file, "tutors/degrees") if degree_file else None
-
-                # 3. Create Tutor Profile
-                profile = TutorProfile.objects.create(
-                    user=user,
-                    full_name=data.get('full_name'),
-                    birthday=data.get('birthday'),
-                    university=data.get('university'),
-                    qualification=data.get('qualification'),
-                    address=data.get('address'),
-                    id_front=id_front_url,
-                    id_back=id_back_url,
-                    degree_image=degree_url,
-                    status='PENDING'
-                )
-
-                # 4. Handle achievements (multiple files)
-                achievement_files = files.getlist('achievements')
-                for f in achievement_files:
-                    url = upload_file_to_s3(f, "tutors/achievements")
-                    if url:
-                        TutorAchievement.objects.create(tutor=profile, image_url=url)
-
-                return Response({
-                    'message': 'Đăng ký hồ sơ gia sư thành công! Hồ sơ của bạn đang chờ quản trị viên phê duyệt.',
-                    'email': user.email
-                }, status=status.HTTP_201_CREATED)
-
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Error during tutor registration: {str(e)}")
             return Response({'error': f'Có lỗi xảy ra: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

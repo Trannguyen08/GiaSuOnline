@@ -92,6 +92,7 @@ class SessionMaterial(models.Model):
         ('note', 'Ghi chú'),
         ('image', 'Hình ảnh'),
         ('file', 'File tài liệu'),
+        ('video', 'Video'),
         ('link', 'Đường dẫn'),
     ]
 
@@ -104,6 +105,15 @@ class SessionMaterial(models.Model):
     title = models.CharField(max_length=255, blank=True)
     content = models.TextField(blank=True)  # Cho text/note/link
     file = models.FileField(upload_to='session_materials/', null=True, blank=True)
+    s3_key = models.CharField(max_length=500, blank=True)
+    external_url = models.URLField(max_length=1000, blank=True)
+    file_size = models.PositiveBigIntegerField(null=True, blank=True)
+    content_type = models.CharField(max_length=255, blank=True)
+    upload_status = models.CharField(
+        max_length=20,
+        choices=[('ready', 'Ready'), ('pending', 'Pending')],
+        default='ready'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -111,3 +121,96 @@ class SessionMaterial(models.Model):
 
     def __str__(self):
         return f"{self.get_material_type_display()} - {self.session}"
+
+
+class StudyRoom(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='study_rooms')
+    students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='StudyRoomStudent',
+        related_name='study_rooms'
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class StudyRoomStudent(models.Model):
+    room = models.ForeignKey(StudyRoom, on_delete=models.CASCADE, related_name='memberships')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='room_memberships')
+    invited_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [['room', 'student']]
+
+    def __str__(self):
+        return f"{self.student.email} in {self.room.title}"
+
+
+class StudyRoomSession(models.Model):
+    room = models.ForeignKey(StudyRoom, on_delete=models.CASCADE, related_name='room_sessions')
+    session_number = models.PositiveIntegerField(default=1)
+    title = models.CharField(max_length=255)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    content_text = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['session_number', 'created_at']
+        unique_together = [['room', 'session_number']]
+
+    def __str__(self):
+        return f"{self.room.title} - {self.title}"
+
+
+class StudyRoomMaterial(models.Model):
+    MATERIAL_TYPES = [
+        ('file', 'File'),
+        ('image', 'Image'),
+        ('video', 'Video'),
+        ('link', 'Link'),
+    ]
+
+    session = models.ForeignKey(StudyRoomSession, on_delete=models.CASCADE, related_name='materials')
+    material_type = models.CharField(max_length=20, choices=MATERIAL_TYPES, default='file')
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True)
+    file = models.FileField(upload_to='study_room_materials/', null=True, blank=True)
+    s3_key = models.CharField(max_length=500, blank=True)
+    external_url = models.URLField(max_length=1000, blank=True)
+    file_size = models.PositiveBigIntegerField(null=True, blank=True)
+    content_type = models.CharField(max_length=255, blank=True)
+    upload_status = models.CharField(
+        max_length=20,
+        choices=[('ready', 'Ready'), ('pending', 'Pending')],
+        default='ready'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class StudyRoomRead(models.Model):
+    session = models.ForeignKey(StudyRoomSession, on_delete=models.CASCADE, related_name='reads')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='study_room_reads')
+    read_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [['session', 'student']]
+
+    def __str__(self):
+        return f"{self.student.email} read {self.session.title}"

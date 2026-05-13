@@ -2,12 +2,26 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import client from '../../api/client';
+import { useToast } from '../../components/ui/Toast';
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
+  const { showToast } = useToast();
+
+  const redirectByRole = (user: any) => {
+    if (user?.is_staff || user?.is_superuser) {
+      navigate('/admin/dashboard');
+      return;
+    }
+    if (user?.is_tutor) {
+      navigate('/tutor/dashboard');
+      return;
+    }
+    navigate('/');
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,11 +32,11 @@ const Login: React.FC = () => {
       localStorage.setItem('refresh_token', res.data.refresh);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       
-      alert('Đăng nhập thành công!');
-      navigate('/');
+      showToast('Đăng nhập thành công!', 'success');
+      redirectByRole(res.data.user);
     } catch (error: any) {
       console.error('Login error:', error);
-      alert(error.response?.data?.error || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.');
+      showToast(error.response?.data?.error || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.', 'error');
     }
   };
 
@@ -36,11 +50,11 @@ const Login: React.FC = () => {
       localStorage.setItem('refresh_token', res.data.refresh);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       
-      alert('Đăng nhập thành công!');
-      navigate('/');
+      showToast('Đăng nhập thành công!', 'success');
+      redirectByRole(res.data.user);
     } catch (error) {
       console.error('Google login error:', error);
-      alert('Đăng nhập Google thất bại. Vui lòng thử lại.');
+      showToast('Đăng nhập Google thất bại. Vui lòng thử lại.', 'error');
     }
   };
 
@@ -108,7 +122,7 @@ const Login: React.FC = () => {
           <div className="w-full flex justify-center">
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
-              onError={() => alert('Đăng nhập thất bại')}
+              onError={() => showToast('Đăng nhập thất bại', 'error')}
               useOneTap
               theme="outline"
               width="100%"

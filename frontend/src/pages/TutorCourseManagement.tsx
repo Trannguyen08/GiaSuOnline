@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Plus, Upload, FileText, Image as ImageIcon, Link2,
-  Trash2, X, Save, ChevronRight, CheckCircle2, Clock, Users, BookOpen
+  Trash2, X, Save, CheckCircle2, Clock, BookOpen, Video
 } from 'lucide-react';
 import { useTutorCourses, useTutorCourseDetail } from '../hooks/useCourses';
 
@@ -105,6 +105,7 @@ const MATERIAL_TYPES = [
   { value: 'note',  label: 'Ghi chú',    icon: FileText },
   { value: 'image', label: 'Hình ảnh',   icon: ImageIcon },
   { value: 'file',  label: 'File tài liệu', icon: Upload },
+  { value: 'video', label: 'Video', icon: Video },
   { value: 'link',  label: 'Đường dẫn', icon: Link2 },
 ];
 
@@ -187,10 +188,10 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
             </div>
           )}
 
-          {(type === 'image' || type === 'file') && (
+          {(type === 'image' || type === 'file' || type === 'video') && (
             <div>
               <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
-                {type === 'image' ? 'Tải lên hình ảnh' : 'Tải lên file'}
+                {type === 'image' ? 'Tải lên hình ảnh' : type === 'video' ? 'Tải lên video' : 'Tải lên file'}
               </label>
               <div
                 onClick={() => fileRef.current?.click()}
@@ -204,14 +205,14 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
                 ) : (
                   <>
                     <Upload className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400 font-medium">Click để chọn {type === 'image' ? 'hình ảnh' : 'file'}</p>
+                    <p className="text-sm text-gray-400 font-medium">Click để chọn {type === 'image' ? 'hình ảnh' : type === 'video' ? 'video' : 'file'}</p>
                   </>
                 )}
               </div>
               <input
                 ref={fileRef}
                 type="file"
-                accept={type === 'image' ? 'image/*' : '*'}
+                accept={type === 'image' ? 'image/*' : type === 'video' ? 'video/*' : '*'}
                 className="hidden"
                 onChange={e => setFile(e.target.files?.[0] || null)}
               />
@@ -372,7 +373,7 @@ export const TutorCourseDetail: React.FC = () => {
                 ) : (
                   <div className="space-y-3">
                     {activeSession.materials.map((mat: any) => {
-                      const Icon = mat.material_type === 'image' ? ImageIcon : mat.material_type === 'link' ? Link2 : FileText;
+                      const Icon = mat.material_type === 'image' ? ImageIcon : mat.material_type === 'video' ? Video : mat.material_type === 'link' ? Link2 : FileText;
                       return (
                         <div key={mat.id} className="flex items-start gap-3 p-4 bg-gray-50 rounded-2xl group hover:bg-gray-100 transition-colors">
                           <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
@@ -381,8 +382,18 @@ export const TutorCourseDetail: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-sm text-gray-800 truncate">{mat.title}</p>
                             {mat.content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{mat.content}</p>}
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              {mat.upload_status === 'pending' ? 'Đang chờ upload S3' : 'Đã lưu trên S3'}
+                              {mat.file_size ? ` • ${(mat.file_size / 1024 / 1024).toFixed(1)}MB` : ''}
+                            </p>
                             {mat.material_type === 'image' && mat.file_url && (
                               <img src={mat.file_url} alt={mat.title} className="mt-2 rounded-xl max-h-40 object-cover" />
+                            )}
+                            {mat.material_type === 'video' && mat.file_url && (
+                              <video src={mat.file_url} controls className="mt-2 rounded-xl max-h-48 w-full bg-black" />
+                            )}
+                            {mat.file_url && mat.material_type !== 'image' && mat.material_type !== 'video' && (
+                              <a href={mat.file_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-indigo-600 mt-2 inline-block">Mở tài liệu</a>
                             )}
                             <p className="text-[10px] text-gray-400 mt-1">{new Date(mat.created_at).toLocaleDateString('vi-VN')}</p>
                           </div>

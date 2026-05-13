@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/client';
+import { bookingsApi } from '../api/bookings';
+import { useToast } from '../components/ui/Toast';
 
 const TutorDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [tutor, setTutor] = useState<any>(null);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [booking, setBooking] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -16,10 +22,27 @@ const TutorDetail: React.FC = () => {
     try {
       const res = await api.get(`/tutors/public/${id}/`);
       setTutor(res.data);
+      const slotData = await bookingsApi.getPublicTutorSlots(id!);
+      setSlots(slotData);
     } catch (err) {
       console.error("Error fetching tutor detail:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBookSlot = async () => {
+    if (!selectedSlotId) return;
+    setBooking(true);
+    try {
+      await bookingsApi.bookSlot(selectedSlotId);
+      setSlots(slots.filter(slot => slot.id !== selectedSlotId));
+      setSelectedSlotId(null);
+      showToast('Đăng ký lịch học thành công!', 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Đăng ký lịch học thất bại.', 'error');
+    } finally {
+      setBooking(false);
     }
   };
 
@@ -202,6 +225,36 @@ const TutorDetail: React.FC = () => {
             </div>
           </div>
 
+          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
+            <h3 className="text-xl font-bold text-[#1e1b4b] mb-6">Khung giờ có thể đăng ký</h3>
+            {slots.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center text-sm font-medium text-gray-400">
+                Gia sư hiện chưa mở khung giờ trống.
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-3">
+                {slots.map(slot => (
+                  <button
+                    key={slot.id}
+                    onClick={() => setSelectedSlotId(slot.id)}
+                    className={`text-left rounded-2xl border p-4 transition-all ${
+                      selectedSlotId === slot.id
+                        ? 'border-[#5a5ce6] bg-indigo-50 text-[#1e1b4b]'
+                        : 'border-gray-100 bg-white hover:border-indigo-200'
+                    }`}
+                  >
+                    <p className="font-bold text-sm">{new Date(slot.start_time).toLocaleString('vi-VN')}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Đến {new Date(slot.end_time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p className="text-sm font-extrabold text-[#5a5ce6] mt-2">{Number(slot.price).toLocaleString('vi-VN')}đ</p>
+                    {slot.note && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{slot.note}</p>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Reviews */}
           <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
             <div className="flex items-center justify-between mb-8">
@@ -299,8 +352,12 @@ const TutorDetail: React.FC = () => {
                   </div>
                 </div>
 
-                <button className="w-full bg-[#5a5ce6] hover:bg-[#4b4de0] text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-100 active:scale-95">
-                  Xác nhận đặt lịch
+                <button
+                  onClick={handleBookSlot}
+                  disabled={!selectedSlotId || booking}
+                  className="w-full bg-[#5a5ce6] hover:bg-[#4b4de0] text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50"
+                >
+                  {booking ? 'Đang đăng ký...' : 'Xác nhận đặt lịch'}
                 </button>
                 
                 <p className="text-[10px] text-gray-400 text-center font-medium leading-relaxed">

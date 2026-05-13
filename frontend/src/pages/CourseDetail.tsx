@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, CheckCircle2, Clock, FileText, Image as ImageIcon,
-  Link2, Lock, X, Download, ChevronRight
+  Link2, X, Download, ChevronRight, Video
 } from 'lucide-react';
 import { useStudentCourseDetail } from '../hooks/useCourses';
 
@@ -11,6 +11,7 @@ const materialIcons: Record<string, any> = {
   note: FileText,
   image: ImageIcon,
   file: FileText,
+  video: Video,
   link: Link2,
 };
 
@@ -112,12 +113,16 @@ const SessionDetailDrawer = ({ session, onClose, onComplete }: any) => {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800 truncate">{mat.title || 'Tài liệu'}</p>
                         {mat.content && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{mat.content}</p>}
+                        {mat.upload_status === 'pending' && <p className="text-xs text-amber-600 font-bold mt-1">Tài liệu đang được xử lý trên S3.</p>}
                         {mat.material_type === 'image' && mat.file_url && (
                           <img src={mat.file_url} alt={mat.title} className="mt-2 rounded-lg max-h-48 object-cover w-full" />
                         )}
+                        {mat.material_type === 'video' && mat.file_url && (
+                          <video src={mat.file_url} controls className="mt-2 rounded-lg max-h-56 w-full bg-black" />
+                        )}
                         <p className="text-[10px] text-slate-400 mt-1">{mat.uploaded_by_name} • {new Date(mat.created_at).toLocaleDateString('vi-VN')}</p>
                       </div>
-                      {mat.file_url && mat.material_type !== 'image' && (
+                      {mat.file_url && mat.material_type !== 'image' && mat.material_type !== 'video' && (
                         <a href={mat.file_url} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors" title="Tải xuống">
                           <Download className="w-4 h-4" />
                         </a>

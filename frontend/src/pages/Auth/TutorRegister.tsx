@@ -1,8 +1,24 @@
 import React, { useState, useRef } from 'react';
+import client from '../../api/client';
+import { useToast } from '../../components/ui/Toast';
 
 const TutorRegister: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+    email: '',
+    birthday: '',
+    university: '',
+    qualification: '',
+    password: '',
+    password_confirm: '',
+    address: '',
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
+  const { showToast } = useToast();
 
   // File states
   const [idFront, setIdFront] = useState<File | null>(null);
@@ -22,7 +38,7 @@ const TutorRegister: React.FC = () => {
 
     const file = files[0];
     if (file.size > 5 * 1024 * 1024) {
-      alert("Kích thước file không được vượt quá 5MB");
+      showToast("Kích thước file không được vượt quá 5MB", 'error');
       return;
     }
 
@@ -38,6 +54,49 @@ const TutorRegister: React.FC = () => {
 
   const removeAchievement = (index: number) => {
     setAchievements(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitMessage('');
+
+    if (formData.password !== formData.password_confirm) {
+      setSubmitMessage('Mat khau xac nhan khong khop.');
+      showToast('Mật khẩu xác nhận không khớp.', 'error');
+      return;
+    }
+
+    if (!idFront || !idBack || !degree) {
+      setSubmitMessage('Vui long tai len day du CCCD hai mat va bang cap.');
+      showToast('Vui lòng tải lên đầy đủ CCCD hai mặt và bằng cấp.', 'error');
+      return;
+    }
+
+    const payload = new FormData();
+    Object.entries(formData).forEach(([key, value]) => payload.append(key, value));
+    payload.append('id_front', idFront);
+    payload.append('id_back', idBack);
+    payload.append('degree', degree);
+    achievements.forEach(file => payload.append('achievements', file));
+
+    try {
+      setIsSubmitting(true);
+      const res = await client.post('/auth/register/tutor/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSubmitMessage(res.data?.message || 'Dang ky thanh cong. Ho so dang cho duyet.');
+      showToast(res.data?.message || 'Đăng ký thành công. Hồ sơ đang chờ duyệt.', 'success');
+    } catch (error: any) {
+      setSubmitMessage(error.response?.data?.error || 'Dang ky khong thanh cong. Vui long thu lai.');
+      showToast(error.response?.data?.error || 'Đăng ký không thành công. Vui lòng thử lại.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const FilePreview = ({ file, onRemove }: { file: File, onRemove: () => void }) => (
@@ -94,7 +153,7 @@ const TutorRegister: React.FC = () => {
         </div>
 
         {/* Right Form Column */}
-        <div className="md:col-span-8 flex flex-col gap-6">
+        <form onSubmit={handleSubmit} className="md:col-span-8 flex flex-col gap-6">
           
           {/* Section: Thông tin cá nhân */}
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
@@ -106,27 +165,27 @@ const TutorRegister: React.FC = () => {
             <div className="grid md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Họ và tên</label>
-                <input type="text" placeholder="Nhập đầy đủ họ tên" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <input name="full_name" value={formData.full_name} onChange={handleInputChange} required type="text" placeholder="Nhập đầy đủ họ tên" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Số điện thoại</label>
-                <input type="tel" placeholder="090-xxx-xxxx" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <input name="phone" value={formData.phone} onChange={handleInputChange} required type="tel" placeholder="090-xxx-xxxx" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Email</label>
-                <input type="email" placeholder="example@email.com" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <input name="email" value={formData.email} onChange={handleInputChange} required type="email" placeholder="example@email.com" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Ngày sinh</label>
-                <input type="date" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm text-gray-500" />
+                <input name="birthday" value={formData.birthday} onChange={handleInputChange} type="date" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm text-gray-500" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Trường đại học</label>
-                <input type="text" placeholder="Nhập tên trường đại học" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <input name="university" value={formData.university} onChange={handleInputChange} required type="text" placeholder="Nhập tên trường đại học" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Trình độ chuyên môn</label>
-                <select className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm bg-white text-gray-500">
+                <select name="qualification" value={formData.qualification} onChange={handleInputChange} required className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm bg-white text-gray-500">
                   <option value="">Chọn trình độ</option>
                   <option value="Sinh viên">Sinh viên</option>
                   <option value="Cử nhân">Cử nhân</option>
@@ -139,6 +198,10 @@ const TutorRegister: React.FC = () => {
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Mật khẩu</label>
                 <div className="relative">
                   <input 
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    required
                     type={showPassword ? "text" : "password"} 
                     placeholder="••••••••" 
                     className="w-full px-4 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm placeholder:text-gray-400"
@@ -161,6 +224,10 @@ const TutorRegister: React.FC = () => {
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Xác nhận mật khẩu</label>
                 <div className="relative">
                   <input 
+                    name="password_confirm"
+                    value={formData.password_confirm}
+                    onChange={handleInputChange}
+                    required
                     type={showConfirmPassword ? "text" : "password"} 
                     placeholder="••••••••" 
                     className="w-full px-4 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm placeholder:text-gray-400"
@@ -180,7 +247,7 @@ const TutorRegister: React.FC = () => {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Địa chỉ hiện tại</label>
-                <input type="text" placeholder="Số nhà, tên đường, phường/xã..." className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <input name="address" value={formData.address} onChange={handleInputChange} required type="text" placeholder="Số nhà, tên đường, phường/xã..." className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
               </div>
             </div>
           </div>
@@ -279,14 +346,15 @@ const TutorRegister: React.FC = () => {
 
             {/* Actions */}
             <div className="mt-10 flex items-center justify-end pt-6 border-t border-gray-100">
-              <button className="px-12 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all">
-                Hoàn tất đăng ký
+              {submitMessage && <p className="mr-4 text-sm font-semibold text-slate-600">{submitMessage}</p>}
+              <button type="submit" disabled={isSubmitting} className="px-12 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-60">
+                {isSubmitting ? 'Dang gui...' : 'Hoàn tất đăng ký'}
               </button>
             </div>
 
           </div>
 
-        </div>
+        </form>
       </div>
     </div>
   );

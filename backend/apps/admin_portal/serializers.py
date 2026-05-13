@@ -32,10 +32,60 @@ class AdminTutorProfileSerializer(serializers.ModelSerializer):
             'university', 'qualification'
         ]
 
+class AdminTutorAchievementSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TutorAchievement
+        fields = ['id', 'image_url', 'description']
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        url = obj.image.url if obj.image else ''
+        return request.build_absolute_uri(url) if request and url.startswith('/') else url
+
 class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
+    user = AdminUserSerializer(read_only=True)
     user_email = serializers.ReadOnlyField(source='user.email')
-    achievements = serializers.StringRelatedField(many=True, read_only=True)
+    registration_status = serializers.CharField(source='status', read_only=True)
+    subjects = serializers.SerializerMethodField()
+    experience_years = serializers.SerializerMethodField()
+    id_front_url = serializers.SerializerMethodField()
+    id_back_url = serializers.SerializerMethodField()
+    degree_image_url = serializers.SerializerMethodField()
+    achievements = AdminTutorAchievementSerializer(many=True, read_only=True)
     
     class Meta:
         model = UserTutorProfile
-        fields = '__all__'
+        fields = [
+            'id', 'user', 'user_email', 'full_name', 'birthday', 'university',
+            'qualification', 'address', 'id_front_url', 'id_back_url',
+            'degree_image_url', 'achievements', 'status', 'registration_status',
+            'subjects', 'experience_years', 'created_at',
+        ]
+
+    def _file_url(self, field):
+        if not field:
+            return ''
+        request = self.context.get('request')
+        url = field.url
+        return request.build_absolute_uri(url) if request and url.startswith('/') else url
+
+    def get_id_front_url(self, obj):
+        return self._file_url(obj.id_front)
+
+    def get_id_back_url(self, obj):
+        return self._file_url(obj.id_back)
+
+    def get_degree_image_url(self, obj):
+        return self._file_url(obj.degree_image)
+
+    def get_subjects(self, obj):
+        teaching_profile = getattr(obj.user, 'teaching_profile', None)
+        if not teaching_profile:
+            return []
+        return AdminTutorSubjectSerializer(teaching_profile.tutor_subjects.all(), many=True).data
+
+    def get_experience_years(self, obj):
+        teaching_profile = getattr(obj.user, 'teaching_profile', None)
+        return teaching_profile.experience_years if teaching_profile else 0

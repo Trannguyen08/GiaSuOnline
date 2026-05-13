@@ -9,8 +9,12 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'phone', 'is_tutor', 'is_verified', 'avatar', 'created_at')
-        read_only_fields = ('id', 'created_at', 'is_verified')
+        fields = (
+            'id', 'username', 'email', 'phone',
+            'is_tutor', 'is_verified', 'is_staff', 'is_superuser',
+            'avatar', 'created_at'
+        )
+        read_only_fields = ('id', 'created_at', 'is_verified', 'is_staff', 'is_superuser')
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])

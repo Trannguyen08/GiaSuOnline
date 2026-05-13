@@ -7,6 +7,7 @@ import TutorRegister from './pages/Auth/TutorRegister';
 import VerifyOTP from './pages/Auth/VerifyOTP';
 
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { ToastProvider } from './components/ui/Toast';
 
 import Home from './pages/Home';
 import FindTutors from './pages/FindTutors';
@@ -16,6 +17,8 @@ import TutorDashboard from './pages/TutorDashboard';
 import TutorSchedule from './pages/TutorSchedule';
 import TutorStudents from './pages/TutorStudents';
 import TutorSettings from './pages/TutorSettings';
+import TutorRooms from './pages/TutorRooms';
+import StudyRooms from './pages/StudyRooms';
 
 // Course Pages
 import MyCourses from './pages/MyCourses';
@@ -34,6 +37,7 @@ function App() {
   return (
     <GoogleOAuthProvider clientId={googleClientId}>
       <Router>
+        <ToastProvider>
         <div className="flex flex-col min-h-screen bg-white">
           <Routes>
             {/* Main Layout Pages */}
@@ -49,6 +53,7 @@ function App() {
               {/* Student Course Pages */}
               <Route path="/my-courses" element={<MyCourses />} />
               <Route path="/my-courses/:id" element={<CourseDetail />} />
+              <Route path="/study-rooms" element={<StudyRooms />} />
             </Route>
 
             {/* Tutor Portal Pages (Custom Layout) */}
@@ -56,6 +61,7 @@ function App() {
               <Route path="dashboard" element={<TutorDashboard />} />
               <Route path="schedule" element={<TutorSchedule />} />
               <Route path="students" element={<TutorStudents />} />
+              <Route path="rooms" element={<TutorRooms />} />
               <Route path="settings" element={<TutorSettings />} />
               <Route path="courses" element={<TutorCourseList />} />
               <Route path="courses/:id" element={<TutorCourseDetail />} />
@@ -64,12 +70,14 @@ function App() {
             {/* Admin Portal Pages */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route path="dashboard" element={<AdminDashboard />} />
-              <Route path="tutors" element={<TutorManagement />} />
+              <Route path="tutor-approvals" element={<TutorManagement mode="approval" />} />
+              <Route path="tutors" element={<TutorManagement mode="management" />} />
               <Route path="users" element={<UserManagement />} />
               <Route index element={<AdminDashboard />} />
             </Route>
           </Routes>
         </div>
+        </ToastProvider>
       </Router>
     </GoogleOAuthProvider>
   );

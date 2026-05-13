@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { coursesApi } from '../api/courses';
+import { shouldUsePresignedUpload, uploadWithPresignedPost } from '../api/upload';
 
 export const useStudentCourses = () => {
   const [data, setData] = useState<any>(null);
@@ -103,7 +104,23 @@ export const useTutorCourseDetail = (courseId: number) => {
 
   const uploadMaterial = useCallback(async (sessionId: number, formData: FormData) => {
     try {
-      await coursesApi.uploadMaterial(sessionId, formData);
+      const file = formData.get('file') as File | null;
+      const materialType = String(formData.get('material_type') || 'file');
+
+      if (file && shouldUsePresignedUpload(file, materialType)) {
+        const presigned = await coursesApi.presignMaterial(sessionId, {
+          filename: file.name,
+          content_type: file.type,
+          file_size: file.size,
+          material_type: materialType,
+          title: formData.get('title'),
+          content: formData.get('content') || '',
+        });
+        await uploadWithPresignedPost(presigned.upload, file);
+        await coursesApi.completeMaterialUpload(presigned.material.id);
+      } else {
+        await coursesApi.uploadMaterial(sessionId, formData);
+      }
       await fetchDetail();
     } catch (err) {
       console.error('Error uploading material:', err);

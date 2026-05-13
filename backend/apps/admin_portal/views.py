@@ -2,11 +2,9 @@ from rest_framework import status, permissions, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Sum
 from apps.users.models import TutorProfile as UserTutorProfile
 from apps.tutors.models import TutorProfile as TeachingProfile
-from apps.bookings.models import Booking # Assuming this exists
-from .serializers import AdminUserSerializer, AdminTutorProfileSerializer, AdminTutorRegistrationSerializer
+from .serializers import AdminUserSerializer, AdminTutorRegistrationSerializer
 
 User = get_user_model()
 
@@ -39,22 +37,23 @@ class AdminDashboardStatsView(APIView):
 # Tutor Management
 class AdminTutorListView(generics.ListAPIView):
     permission_classes = [IsAdminUser]
-    serializer_class = AdminTutorProfileSerializer
+    serializer_class = AdminTutorRegistrationSerializer
 
     def get_queryset(self):
-        queryset = TeachingProfile.objects.all().select_related('user', 'user__tutor_profile').prefetch_related('tutor_subjects__subject')
+        queryset = UserTutorProfile.objects.all().select_related('user').prefetch_related('achievements')
         
         status_param = self.request.query_params.get('status')
         if status_param:
-            queryset = queryset.filter(user__tutor_profile__status=status_param.upper())
+            queryset = queryset.filter(status=status_param.upper())
             
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(full_name__icontains=search) | queryset.filter(user__email__icontains=search)
             
-        return queryset
+        return queryset.order_by('-created_at')
 
 from apps.users.tasks import send_account_lock_email
+from apps.users.services.tutor_registration import approve_tutor_registration, reject_tutor_registration
 
 class AdminTutorActionView(APIView):
     permission_classes = [IsAdminUser]
@@ -65,11 +64,9 @@ class AdminTutorActionView(APIView):
         try:
             profile = UserTutorProfile.objects.get(pk=pk)
             if action == 'approve':
-                profile.status = 'APPROVED'
-                profile.user.is_verified = True
-                profile.user.save()
+                approve_tutor_registration(profile)
             elif action == 'reject':
-                profile.status = 'REJECTED'
+                reject_tutor_registration(profile, request.data.get('reason', ''))
             elif action == 'lock':
                 profile.user.is_active = False
                 profile.user.save()

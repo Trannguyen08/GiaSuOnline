@@ -4,14 +4,52 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
+from django.contrib.auth import get_user_model
+from django.conf import settings
 from datetime import date, timedelta
 
-from .models import Course, CourseSession, SessionMaterial
+from .models import (
+    Course, CourseSession, SessionMaterial,
+    StudyRoom, StudyRoomStudent, StudyRoomSession, StudyRoomMaterial, StudyRoomRead
+)
 from .serializers import (
     CourseListSerializer, CourseDetailSerializer,
     CourseCreateSerializer, CourseSessionSerializer,
-    SessionMaterialSerializer
+    SessionMaterialSerializer,
+    StudyRoomListSerializer, StudyRoomDetailSerializer,
+    StudyRoomSessionSerializer, StudyRoomMaterialSerializer,
+    StudyRoomStudentAddSerializer
 )
+from core.s3_uploads import (
+    build_material_key, create_presigned_post, public_s3_url,
+    validate_material_upload, s3_client
+)
+
+User = get_user_model()
+
+
+def ensure_s3_upload_enabled():
+    return getattr(settings, 'USE_S3', False) and getattr(settings, 'AWS_STORAGE_BUCKET_NAME', '')
+
+
+def apply_direct_file_metadata(material, file_obj):
+    if not file_obj:
+        return
+    error = validate_material_upload(getattr(file_obj, 'content_type', ''), getattr(file_obj, 'size', 0))
+    if error:
+        raise ValueError(error)
+    material.file_size = file_obj.size
+    material.content_type = file_obj.content_type
+    material.s3_key = material.file.name
+    material.external_url = material.file.url
+    material.upload_status = 'ready'
+    material.save(update_fields=['file_size', 'content_type', 's3_key', 'external_url', 'upload_status'])
+
+
+def confirm_s3_object_uploaded(material):
+    if not ensure_s3_upload_enabled() or not material.s3_key:
+        raise ValueError('S3 object key is missing.')
+    s3_client().head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=material.s3_key)
 
 
 class StudentCourseListView(APIView):
@@ -175,8 +213,19 @@ class TutorSessionMaterialUploadView(APIView):
             context={'request': request}
         )
         if serializer.is_valid():
-            serializer.save(session=session, uploaded_by=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            file_obj = request.FILES.get('file')
+            if file_obj and not ensure_s3_upload_enabled():
+                return Response({'error': 'S3 upload is not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            if file_obj:
+                error = validate_material_upload(getattr(file_obj, 'content_type', ''), getattr(file_obj, 'size', 0))
+                if error:
+                    return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                material = serializer.save(session=session, uploaded_by=request.user)
+                apply_direct_file_metadata(material, file_obj)
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(SessionMaterialSerializer(material, context={'request': request}).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, session_id):
@@ -191,3 +240,302 @@ class TutorSessionMaterialUploadView(APIView):
 
         material.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TutorSessionMaterialPresignView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        if not ensure_s3_upload_enabled():
+            return Response({'error': 'S3 upload is not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        try:
+            session = CourseSession.objects.get(pk=session_id, course__tutor=request.user.teaching_profile)
+        except CourseSession.DoesNotExist:
+            return Response({'error': 'Khong tim thay buoi hoc'}, status=status.HTTP_404_NOT_FOUND)
+
+        filename = request.data.get('filename', 'material')
+        content_type = request.data.get('content_type', '')
+        file_size = int(request.data.get('file_size') or 0)
+        key = build_material_key('session_materials', filename)
+
+        try:
+            presigned = create_presigned_post(key, content_type, file_size)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        material = SessionMaterial.objects.create(
+            session=session,
+            uploaded_by=request.user,
+            material_type=request.data.get('material_type', 'file'),
+            title=request.data.get('title', filename),
+            content=request.data.get('content', ''),
+            s3_key=key,
+            external_url=public_s3_url(key),
+            file_size=file_size,
+            content_type=content_type,
+            upload_status='pending',
+        )
+        return Response({
+            'material': SessionMaterialSerializer(material, context={'request': request}).data,
+            'upload': presigned,
+            'max_size_mb': settings.SESSION_MATERIAL_PRESIGNED_UPLOAD_MAX_MB,
+        }, status=status.HTTP_201_CREATED)
+
+
+class TutorSessionMaterialCompleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, material_id):
+        try:
+            material = SessionMaterial.objects.get(pk=material_id, session__course__tutor=request.user.teaching_profile)
+        except SessionMaterial.DoesNotExist:
+            return Response({'error': 'Khong tim thay tai lieu'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            confirm_s3_object_uploaded(material)
+        except Exception:
+            return Response({'error': 'File chua upload xong tren S3'}, status=status.HTTP_400_BAD_REQUEST)
+
+        material.upload_status = 'ready'
+        material.save(update_fields=['upload_status'])
+        return Response(SessionMaterialSerializer(material, context={'request': request}).data)
+
+
+class TutorStudyRoomListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            tutor_profile = request.user.teaching_profile
+        except Exception:
+            return Response({'error': 'Khong tim thay ho so gia su'}, status=status.HTTP_404_NOT_FOUND)
+
+        rooms = StudyRoom.objects.filter(tutor=tutor_profile).prefetch_related('students', 'room_sessions')
+        serializer = StudyRoomListSerializer(rooms, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def post(self, request):
+        try:
+            tutor_profile = request.user.teaching_profile
+        except Exception:
+            return Response({'error': 'Khong tim thay ho so gia su'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomListSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            room = serializer.save(tutor=tutor_profile)
+            student_ids = request.data.get('student_ids', [])
+            if student_ids:
+                students = User.objects.filter(id__in=student_ids, is_tutor=False)
+                StudyRoomStudent.objects.bulk_create(
+                    [StudyRoomStudent(room=room, student=student) for student in students],
+                    ignore_conflicts=True
+                )
+            return Response(StudyRoomDetailSerializer(room, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_room(self, request, pk):
+        return StudyRoom.objects.prefetch_related(
+            'students', 'room_sessions__materials', 'room_sessions__reads__student'
+        ).get(pk=pk, tutor=request.user.teaching_profile)
+
+    def get(self, request, pk):
+        try:
+            room = self.get_room(request, pk)
+        except StudyRoom.DoesNotExist:
+            return Response({'error': 'Khong tim thay room'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StudyRoomDetailSerializer(room, context={'request': request}).data)
+
+    def patch(self, request, pk):
+        try:
+            room = self.get_room(request, pk)
+        except StudyRoom.DoesNotExist:
+            return Response({'error': 'Khong tim thay room'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomListSerializer(room, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(StudyRoomDetailSerializer(room, context={'request': request}).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomStudentsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            room = StudyRoom.objects.get(pk=pk, tutor=request.user.teaching_profile)
+        except StudyRoom.DoesNotExist:
+            return Response({'error': 'Khong tim thay room'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomStudentAddSerializer(data=request.data)
+        if serializer.is_valid():
+            students = User.objects.filter(id__in=serializer.validated_data['student_ids'], is_tutor=False)
+            StudyRoomStudent.objects.bulk_create(
+                [StudyRoomStudent(room=room, student=student) for student in students],
+                ignore_conflicts=True
+            )
+            return Response(StudyRoomDetailSerializer(room, context={'request': request}).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomSessionCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            room = StudyRoom.objects.get(pk=pk, tutor=request.user.teaching_profile)
+        except StudyRoom.DoesNotExist:
+            return Response({'error': 'Khong tim thay room'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomSessionSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save(room=room)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomSessionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def patch(self, request, session_id):
+        try:
+            session = StudyRoomSession.objects.get(pk=session_id, room__tutor=request.user.teaching_profile)
+        except StudyRoomSession.DoesNotExist:
+            return Response({'error': 'Khong tim thay buoi hoc'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomSessionSerializer(session, data=request.data, partial=True, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomMaterialView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request, session_id):
+        try:
+            session = StudyRoomSession.objects.get(pk=session_id, room__tutor=request.user.teaching_profile)
+        except StudyRoomSession.DoesNotExist:
+            return Response({'error': 'Khong tim thay buoi hoc'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudyRoomMaterialSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            file_obj = request.FILES.get('file')
+            if file_obj and not ensure_s3_upload_enabled():
+                return Response({'error': 'S3 upload is not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            if file_obj:
+                error = validate_material_upload(getattr(file_obj, 'content_type', ''), getattr(file_obj, 'size', 0))
+                if error:
+                    return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                material = serializer.save(session=session)
+                apply_direct_file_metadata(material, file_obj)
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(StudyRoomMaterialSerializer(material, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudyRoomMaterialPresignView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        if not ensure_s3_upload_enabled():
+            return Response({'error': 'S3 upload is not configured'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        try:
+            session = StudyRoomSession.objects.get(pk=session_id, room__tutor=request.user.teaching_profile)
+        except StudyRoomSession.DoesNotExist:
+            return Response({'error': 'Khong tim thay buoi hoc'}, status=status.HTTP_404_NOT_FOUND)
+
+        filename = request.data.get('filename', 'material')
+        content_type = request.data.get('content_type', '')
+        file_size = int(request.data.get('file_size') or 0)
+        key = build_material_key('study_room_materials', filename)
+
+        try:
+            presigned = create_presigned_post(key, content_type, file_size)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        material = StudyRoomMaterial.objects.create(
+            session=session,
+            material_type=request.data.get('material_type', 'file'),
+            title=request.data.get('title', filename),
+            content=request.data.get('content', ''),
+            s3_key=key,
+            external_url=public_s3_url(key),
+            file_size=file_size,
+            content_type=content_type,
+            upload_status='pending',
+        )
+        return Response({
+            'material': StudyRoomMaterialSerializer(material, context={'request': request}).data,
+            'upload': presigned,
+            'max_size_mb': settings.SESSION_MATERIAL_PRESIGNED_UPLOAD_MAX_MB,
+        }, status=status.HTTP_201_CREATED)
+
+
+class TutorStudyRoomMaterialCompleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, material_id):
+        try:
+            material = StudyRoomMaterial.objects.get(pk=material_id, session__room__tutor=request.user.teaching_profile)
+        except StudyRoomMaterial.DoesNotExist:
+            return Response({'error': 'Khong tim thay tai lieu'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            confirm_s3_object_uploaded(material)
+        except Exception:
+            return Response({'error': 'File chua upload xong tren S3'}, status=status.HTTP_400_BAD_REQUEST)
+
+        material.upload_status = 'ready'
+        material.save(update_fields=['upload_status'])
+        return Response(StudyRoomMaterialSerializer(material, context={'request': request}).data)
+
+
+class StudentStudyRoomListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rooms = StudyRoom.objects.filter(students=request.user, is_active=True).prefetch_related('room_sessions')
+        serializer = StudyRoomListSerializer(rooms, many=True, context={'request': request})
+        return Response(serializer.data)
+
+
+class StudentStudyRoomDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            room = StudyRoom.objects.prefetch_related(
+                'students', 'room_sessions__materials', 'room_sessions__reads__student'
+            ).get(pk=pk, students=request.user, is_active=True)
+        except StudyRoom.DoesNotExist:
+            return Response({'error': 'Khong tim thay room'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StudyRoomDetailSerializer(room, context={'request': request}).data)
+
+
+class StudentStudyRoomSessionReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        try:
+            session = StudyRoomSession.objects.get(pk=session_id, room__students=request.user, room__is_active=True)
+        except StudyRoomSession.DoesNotExist:
+            return Response({'error': 'Khong tim thay buoi hoc'}, status=status.HTTP_404_NOT_FOUND)
+
+        read, _ = StudyRoomRead.objects.get_or_create(session=session, student=request.user)
+        read.read_at = timezone.now()
+        read.save(update_fields=['read_at'])
+        return Response({'message': 'Da danh dau da doc', 'read_at': read.read_at})

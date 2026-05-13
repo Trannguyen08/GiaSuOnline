@@ -14,6 +14,10 @@ export const coursesApi = {
     client.post(`/courses/tutor/sessions/${sessionId}/materials/`, data, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }).then(r => r.data),
+  presignMaterial: (sessionId: number, data: any) =>
+    client.post(`/courses/tutor/sessions/${sessionId}/materials/presign/`, data).then(r => r.data),
+  completeMaterialUpload: (materialId: number) =>
+    client.post(`/courses/tutor/materials/${materialId}/complete/`).then(r => r.data),
   deleteMaterial: (sessionId: number, materialId: number) =>
     client.delete(`/courses/tutor/sessions/${sessionId}/materials/?material_id=${materialId}`),
 };
