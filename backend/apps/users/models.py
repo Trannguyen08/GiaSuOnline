@@ -36,6 +36,10 @@ class TutorProfile(models.Model):
     university = models.CharField(max_length=255)
     qualification = models.CharField(max_length=100) # Sinh viên, Cử nhân, v.v.
     address = models.TextField()
+    subjects_text = models.TextField(blank=True)
+    experience_years = models.PositiveIntegerField(default=0)
+    teaching_levels = models.JSONField(default=list, blank=True)
+    teaching_region = models.CharField(max_length=100, blank=True)
     
     # Storage backend sends these to S3 when USE_S3=True, or local media in dev.
     id_front = models.ImageField(upload_to='tutors/cccd/', null=True, blank=True)
@@ -55,6 +59,15 @@ class TutorAchievement(models.Model):
 
     def __str__(self):
         return f"Achievement for {self.tutor.full_name}"
+
+
+class TutorDegreeImage(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='degree_images')
+    image = models.ImageField(upload_to='tutors/degrees/')
+    description = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return f"Degree image for {self.tutor.full_name}"
 
 class OTP(models.Model):
     email = models.EmailField()

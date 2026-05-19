@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     Course, CourseSession, SessionMaterial,
-    StudyRoom, StudyRoomStudent, StudyRoomSession, StudyRoomMaterial, StudyRoomRead
+    StudyRoom, StudyRoomStudent, StudyRoomSession, StudyRoomMaterial, StudyRoomRead,
+    CourseReview, CourseExtensionRequest
 )
 from apps.tutors.models import TutorProfile
 from apps.users.serializers import UserSerializer
@@ -54,6 +55,40 @@ class CourseSessionSerializer(serializers.ModelSerializer):
         return True
 
 
+class CourseReviewSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    subject_name = serializers.CharField(source='course.subject.name', read_only=True)
+
+    class Meta:
+        model = CourseReview
+        fields = ['id', 'course', 'student_name', 'subject_name', 'rating', 'comment', 'created_at']
+        read_only_fields = ['id', 'course', 'student_name', 'subject_name', 'created_at']
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username or obj.student.email
+
+    def validate_rating(self, value):
+        if value < 1 or value > 5:
+            raise serializers.ValidationError('Rating must be between 1 and 5.')
+        return value
+
+
+class CourseExtensionRequestSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source='course.title', read_only=True)
+    student_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CourseExtensionRequest
+        fields = [
+            'id', 'course', 'course_title', 'student_name', 'requested_end_date',
+            'status', 'tutor_note', 'created_at', 'responded_at'
+        ]
+        read_only_fields = ['id', 'course', 'course_title', 'student_name', 'status', 'tutor_note', 'created_at', 'responded_at']
+
+    def get_student_name(self, obj):
+        return obj.course.student.get_full_name() or obj.course.student.username or obj.course.student.email
+
+
 class CourseListSerializer(serializers.ModelSerializer):
     """Compact serializer for the course list (card view)"""
     tutor_name = serializers.CharField(source='tutor.full_name', read_only=True)
@@ -61,6 +96,9 @@ class CourseListSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source='subject.name', read_only=True)
     completed_sessions = serializers.IntegerField(source='completed_sessions_count', read_only=True)
     this_week_sessions = serializers.IntegerField(source='this_week_sessions_count', read_only=True)
+    can_review = serializers.BooleanField(source='can_student_review', read_only=True)
+    review = CourseReviewSerializer(read_only=True)
+    pending_extension_request = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
@@ -70,12 +108,19 @@ class CourseListSerializer(serializers.ModelSerializer):
             'total_sessions', 'completed_sessions', 'this_week_sessions',
             'schedule_time', 'start_date', 'end_date',
             'hourly_rate', 'session_duration_minutes',
+            'can_review', 'review', 'pending_extension_request',
         ]
 
     def get_tutor_avatar(self, obj):
         request = self.context.get('request')
         # Return dicebear avatar based on tutor name
         return f"https://api.dicebear.com/7.x/avataaars/svg?seed={obj.tutor.full_name}"
+
+    def get_pending_extension_request(self, obj):
+        request = obj.extension_requests.filter(status='pending').first()
+        if not request:
+            return None
+        return CourseExtensionRequestSerializer(request).data
 
 
 class CourseDetailSerializer(CourseListSerializer):

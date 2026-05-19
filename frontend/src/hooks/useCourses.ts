@@ -55,7 +55,17 @@ export const useStudentCourseDetail = (courseId: number) => {
     }
   }, [fetchDetail]);
 
-  return { course, loading, fetchDetail, completeSession };
+  const reviewCourse = useCallback(async (data: any) => {
+    await coursesApi.reviewCourse(courseId, data);
+    await fetchDetail();
+  }, [courseId, fetchDetail]);
+
+  const requestExtension = useCallback(async (requestedEndDate: string) => {
+    await coursesApi.requestExtension(courseId, { requested_end_date: requestedEndDate });
+    await fetchDetail();
+  }, [courseId, fetchDetail]);
+
+  return { course, loading, fetchDetail, completeSession, reviewCourse, requestExtension };
 };
 
 export const useTutorCourses = () => {

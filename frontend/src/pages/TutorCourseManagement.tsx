@@ -6,13 +6,25 @@ import {
   Trash2, X, Save, CheckCircle2, Clock, BookOpen, Video
 } from 'lucide-react';
 import { useTutorCourses, useTutorCourseDetail } from '../hooks/useCourses';
+import { coursesApi } from '../api/courses';
 
 // ── TUTOR COURSE LIST ─────────────────────────────────────────────────────────
 export const TutorCourseList: React.FC = () => {
   const navigate = useNavigate();
   const { data, loading, fetchCourses } = useTutorCourses();
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [extensions, setExtensions] = useState<any[]>([]);
 
-  useEffect(() => { fetchCourses(); }, [fetchCourses]);
+  const fetchSideData = async () => {
+    const [reviewData, extensionData] = await Promise.all([
+      coursesApi.getTutorReviews().catch(() => []),
+      coursesApi.getTutorExtensionRequests().catch(() => []),
+    ]);
+    setReviews(reviewData);
+    setExtensions(extensionData);
+  };
+
+  useEffect(() => { fetchCourses(); fetchSideData(); }, [fetchCourses]);
 
   const courses: any[] = data?.courses || [];
 
@@ -96,6 +108,55 @@ export const TutorCourseList: React.FC = () => {
           })}
         </div>
       )}
+
+      <div className="grid lg:grid-cols-2 gap-5">
+        <div className="bg-white rounded-3xl p-6 border border-gray-100">
+          <h2 className="font-extrabold text-gray-900 mb-4">Feedback từ học viên</h2>
+          {reviews.length === 0 ? (
+            <p className="text-sm text-gray-400">Chưa có feedback nào.</p>
+          ) : (
+            <div className="space-y-4">
+              {reviews.slice(0, 5).map(review => (
+                <div key={review.id} className="rounded-2xl bg-gray-50 p-4">
+                  <div className="flex justify-between gap-3">
+                    <p className="font-bold text-sm text-gray-900">{review.student_name}</p>
+                    <p className="text-xs font-bold text-yellow-500">{review.rating}/5 sao</p>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-400">{review.subject_name}</p>
+                  <p className="mt-2 text-sm text-gray-600">{review.comment}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-3xl p-6 border border-gray-100">
+          <h2 className="font-extrabold text-gray-900 mb-4">Yêu cầu gia hạn</h2>
+          {extensions.length === 0 ? (
+            <p className="text-sm text-gray-400">Không có yêu cầu gia hạn.</p>
+          ) : (
+            <div className="space-y-4">
+              {extensions.map(item => (
+                <div key={item.id} className="rounded-2xl bg-gray-50 p-4">
+                  <div className="flex justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-sm text-gray-900">{item.course_title}</p>
+                      <p className="text-xs text-gray-400">{item.student_name} muốn gia hạn đến {item.requested_end_date}</p>
+                    </div>
+                    <span className="text-xs font-bold text-indigo-600">{item.status}</span>
+                  </div>
+                  {item.status === 'pending' && (
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={async () => { await coursesApi.decideExtensionRequest(item.id, { action: 'approve' }); fetchSideData(); fetchCourses(); }} className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold">Đồng ý</button>
+                      <button onClick={async () => { await coursesApi.decideExtensionRequest(item.id, { action: 'reject' }); fetchSideData(); }} className="px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold">Từ chối</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

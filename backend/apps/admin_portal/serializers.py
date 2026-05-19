@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from apps.users.models import TutorProfile as UserTutorProfile, TutorAchievement
+from apps.users.models import TutorProfile as UserTutorProfile, TutorAchievement, TutorDegreeImage
 from apps.tutors.models import TutorProfile as TeachingProfile, TutorSubject, Subject
 
 User = get_user_model()
@@ -44,6 +44,18 @@ class AdminTutorAchievementSerializer(serializers.ModelSerializer):
         url = obj.image.url if obj.image else ''
         return request.build_absolute_uri(url) if request and url.startswith('/') else url
 
+class AdminTutorDegreeImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TutorDegreeImage
+        fields = ['id', 'image_url', 'description']
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        url = obj.image.url if obj.image else ''
+        return request.build_absolute_uri(url) if request and url.startswith('/') else url
+
 class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     user = AdminUserSerializer(read_only=True)
     user_email = serializers.ReadOnlyField(source='user.email')
@@ -53,15 +65,17 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     id_front_url = serializers.SerializerMethodField()
     id_back_url = serializers.SerializerMethodField()
     degree_image_url = serializers.SerializerMethodField()
+    degree_images = AdminTutorDegreeImageSerializer(many=True, read_only=True)
     achievements = AdminTutorAchievementSerializer(many=True, read_only=True)
     
     class Meta:
         model = UserTutorProfile
         fields = [
             'id', 'user', 'user_email', 'full_name', 'birthday', 'university',
-            'qualification', 'address', 'id_front_url', 'id_back_url',
-            'degree_image_url', 'achievements', 'status', 'registration_status',
-            'subjects', 'experience_years', 'created_at',
+            'qualification', 'address', 'subjects_text', 'experience_years',
+            'teaching_levels', 'teaching_region', 'id_front_url', 'id_back_url',
+            'degree_image_url', 'degree_images', 'achievements', 'status', 'registration_status',
+            'subjects', 'created_at',
         ]
 
     def _file_url(self, field):
@@ -88,4 +102,4 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
 
     def get_experience_years(self, obj):
         teaching_profile = getattr(obj.user, 'teaching_profile', None)
-        return teaching_profile.experience_years if teaching_profile else 0
+        return teaching_profile.experience_years if teaching_profile else obj.experience_years

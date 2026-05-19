@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTutorStore } from '../store/useTutorStore';
+import { tutorService } from '../services/tutorService';
 import { validateRequired } from '../utils/validation';
 import { Save, Eye, Camera, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
@@ -8,13 +9,15 @@ const TutorSettings: React.FC = () => {
   const { profile, fetchProfile, updateProfile, isLoading } = useTutorStore();
   const { showToast } = useToast();
   const [formData, setFormData] = useState<any>(null);
+  const [subjects, setSubjects] = useState<any[]>([]);
 
   useEffect(() => {
     fetchProfile();
+    tutorService.getSubjects().then(setSubjects).catch(() => setSubjects([]));
   }, [fetchProfile]);
 
   useEffect(() => {
-    if (profile) setFormData(profile);
+    if (profile) setFormData({ ...profile, subjects: profile.tutor_subjects || [] });
   }, [profile]);
 
   const handleSave = async () => {
@@ -24,6 +27,26 @@ const TutorSettings: React.FC = () => {
     }
     await updateProfile(formData);
     showToast("Đã cập nhật hồ sơ thành công!", 'success');
+  };
+
+  const addSubject = () => {
+    setFormData((current: any) => ({
+      ...current,
+      subjects: [...(current.subjects || []), { subject: subjects[0]?.id || '', subject_name: subjects[0]?.name || '', level: 'Cơ bản', hourly_rate: '0' }],
+    }));
+  };
+
+  const updateSubject = (idx: number, key: string, value: any) => {
+    const next = [...(formData.subjects || [])];
+    next[idx] = { ...next[idx], [key]: value };
+    if (key === 'subject') {
+      next[idx].subject_name = subjects.find(subject => String(subject.id) === String(value))?.name || '';
+    }
+    setFormData({ ...formData, subjects: next });
+  };
+
+  const removeSubject = (idx: number) => {
+    setFormData({ ...formData, subjects: (formData.subjects || []).filter((_: any, index: number) => index !== idx) });
   };
 
   if (!formData) return <div className="flex items-center justify-center h-screen text-slate-400">Đang tải hồ sơ...</div>;
@@ -127,7 +150,7 @@ const TutorSettings: React.FC = () => {
         <div className="bg-white rounded-[2.5rem] p-10 shadow-sm border border-gray-50">
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-xl font-bold text-gray-900">Môn học & Học phí</h3>
-            <button className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline">
+            <button onClick={addSubject} className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:underline">
               <Plus className="w-5 h-5" />
               Thêm môn học
             </button>
@@ -136,25 +159,24 @@ const TutorSettings: React.FC = () => {
           <div className="space-y-4">
             {formData.subjects?.map((item: any, idx: number) => (
               <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-6 rounded-2xl bg-gray-50/50 group hover:bg-gray-50 transition-all gap-4">
-                <div className="flex items-center gap-8">
-                  <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-sm font-bold">{item.subject_name}</div>
-                  <div className="text-sm font-medium text-gray-500">Cấp độ: <span className="text-gray-900 font-bold">{item.level}</span></div>
+                <div className="grid flex-1 grid-cols-1 sm:grid-cols-2 gap-3">
+                  <select value={item.subject || ''} onChange={e => updateSubject(idx, 'subject', e.target.value)} className="px-4 py-3 bg-white border border-gray-100 rounded-xl text-sm font-bold text-gray-900 outline-none">
+                    <option value="">Chọn môn</option>
+                    {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                  </select>
+                  <input value={item.level || ''} onChange={e => updateSubject(idx, 'level', e.target.value)} placeholder="Cấp độ / mục tiêu" className="px-4 py-3 bg-white border border-gray-100 rounded-xl text-sm font-bold text-gray-900 outline-none" />
                 </div>
                 <div className="flex items-center gap-6 self-end sm:self-auto">
                   <div className="flex items-center gap-2">
                     <input 
                       type="text" 
                       value={item.hourly_rate} 
-                      onChange={e => {
-                        const newSubjects = [...formData.subjects];
-                        newSubjects[idx].hourly_rate = e.target.value;
-                        setFormData({...formData, subjects: newSubjects});
-                      }}
+                      onChange={e => updateSubject(idx, 'hourly_rate', e.target.value)}
                       className="w-32 bg-white border border-gray-100 rounded-lg px-3 py-2 text-right font-bold text-gray-900 focus:ring-2 focus:ring-blue-600/20 outline-none" 
                     />
                     <span className="text-xs font-bold text-gray-400">VND/giờ</span>
                   </div>
-                  <button className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+                  <button onClick={() => removeSubject(idx)} className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>

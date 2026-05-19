@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, Clock, Plus, Trash2, Video, X } from 'lucide-react';
 import { bookingsApi } from '../api/bookings';
-import { tutorService } from '../services/tutorService';
 import { useToast } from '../components/ui/Toast';
 
 const weekdays = [
@@ -15,12 +14,9 @@ const weekdays = [
 ];
 
 const emptyForm = {
-  subject: '',
   start_date: '',
   end_date: '',
-  weekdays: [] as number[],
-  start_time: '',
-  end_time: '',
+  daySlots: [] as { day: number; start_time: string; end_time: string }[],
   price: '',
   note: '',
 };
@@ -32,7 +28,6 @@ const buildDateTime = (dateText: string, timeText: string) => `${dateText}T${tim
 const TutorSchedule: React.FC = () => {
   const { showToast } = useToast();
   const [slots, setSlots] = useState<any[]>([]);
-  const [subjects, setSubjects] = useState<any[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -49,7 +44,6 @@ const TutorSchedule: React.FC = () => {
 
   useEffect(() => {
     fetchSlots();
-    tutorService.getSubjects().then(setSubjects).catch(() => setSubjects([]));
   }, []);
 
   const stats = useMemo(() => ({
@@ -58,7 +52,7 @@ const TutorSchedule: React.FC = () => {
   }), [slots]);
 
   const generatedSlots = useMemo(() => {
-    if (!form.start_date || !form.end_date || !form.start_time || !form.end_time || form.weekdays.length === 0) {
+    if (!form.start_date || !form.end_date || form.daySlots.length === 0) {
       return [];
     }
 
@@ -66,23 +60,31 @@ const TutorSchedule: React.FC = () => {
     const end = new Date(`${form.end_date}T00:00:00`);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
 
-    const dates: string[] = [];
+    const dates: { dateText: string; startTime: string; endTime: string }[] = [];
     const current = new Date(start);
     while (current <= end) {
-      if (form.weekdays.includes(current.getDay())) {
-        dates.push(toDateInput(current));
+      const dayConfig = form.daySlots.find(item => item.day === current.getDay());
+      if (dayConfig?.start_time && dayConfig?.end_time) {
+        dates.push({ dateText: toDateInput(current), startTime: dayConfig.start_time, endTime: dayConfig.end_time });
       }
       current.setDate(current.getDate() + 1);
     }
     return dates;
-  }, [form.end_date, form.start_date, form.start_time, form.end_time, form.weekdays]);
+  }, [form.end_date, form.start_date, form.daySlots]);
 
   const toggleWeekday = (value: number) => {
     setForm(current => ({
       ...current,
-      weekdays: current.weekdays.includes(value)
-        ? current.weekdays.filter(day => day !== value)
-        : [...current.weekdays, value],
+      daySlots: current.daySlots.some(item => item.day === value)
+        ? current.daySlots.filter(item => item.day !== value)
+        : [...current.daySlots, { day: value, start_time: '07:00', end_time: '08:30' }],
+    }));
+  };
+
+  const updateDaySlot = (day: number, field: 'start_time' | 'end_time', value: string) => {
+    setForm(current => ({
+      ...current,
+      daySlots: current.daySlots.map(item => item.day === day ? { ...item, [field]: value } : item),
     }));
   };
 
@@ -92,17 +94,17 @@ const TutorSchedule: React.FC = () => {
       showToast('Vui lòng chọn khoảng ngày và thứ dạy hợp lệ.', 'error');
       return;
     }
-    if (form.end_time <= form.start_time) {
-      showToast('Giờ kết thúc phải sau giờ bắt đầu.', 'error');
+    if (form.daySlots.some(item => item.end_time <= item.start_time)) {
+      showToast('Giờ kết thúc của từng thứ phải sau giờ bắt đầu.', 'error');
       return;
     }
 
     setSaving(true);
     try {
-      await Promise.all(generatedSlots.map(dateText => bookingsApi.createTutorSlot({
-        subject: form.subject || null,
-        start_time: buildDateTime(dateText, form.start_time),
-        end_time: buildDateTime(dateText, form.end_time),
+      await Promise.all(generatedSlots.map(slot => bookingsApi.createTutorSlot({
+        subject: null,
+        start_time: buildDateTime(slot.dateText, slot.startTime),
+        end_time: buildDateTime(slot.dateText, slot.endTime),
         price: form.price || 0,
         note: form.note,
       })));
@@ -160,7 +162,7 @@ const TutorSchedule: React.FC = () => {
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-extrabold text-slate-900">Tạo lịch dạy mới</h2>
-              <p className="mt-1 text-sm text-slate-500">Hệ thống sẽ tạo một khung giờ cho từng ngày khớp các thứ đã chọn.</p>
+              <p className="mt-1 text-sm text-slate-500">Mỗi thứ có thể dùng một khung giờ riêng. Học sinh sẽ chọn môn khi đặt lịch.</p>
             </div>
             <button type="button" onClick={() => setIsFormOpen(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100">
               <X className="h-5 w-5" />
@@ -168,21 +170,7 @@ const TutorSchedule: React.FC = () => {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-6">
-            <label className="lg:col-span-2">
-              <span className="text-xs font-bold uppercase text-slate-400">Môn dạy</span>
-              <select
-                required
-                value={form.subject}
-                onChange={event => setForm({ ...form, subject: event.target.value })}
-                className="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-              >
-                <option value="">Chọn môn dạy</option>
-                {subjects.map(subject => (
-                  <option key={subject.id} value={subject.id}>{subject.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="lg:col-span-2">
+            <label className="lg:col-span-3">
               <span className="text-xs font-bold uppercase text-slate-400">Ngày bắt đầu</span>
               <input
                 type="date"
@@ -192,7 +180,7 @@ const TutorSchedule: React.FC = () => {
                 className="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </label>
-            <label className="lg:col-span-2">
+            <label className="lg:col-span-3">
               <span className="text-xs font-bold uppercase text-slate-400">Ngày kết thúc</span>
               <input
                 type="date"
@@ -211,7 +199,7 @@ const TutorSchedule: React.FC = () => {
                     type="button"
                     onClick={() => toggleWeekday(day.value)}
                     className={`rounded-xl border px-4 py-2 text-sm font-bold ${
-                      form.weekdays.includes(day.value)
+                      form.daySlots.some(item => item.day === day.value)
                         ? 'border-indigo-600 bg-indigo-600 text-white'
                         : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                     }`}
@@ -221,26 +209,40 @@ const TutorSchedule: React.FC = () => {
                 ))}
               </div>
             </div>
-            <label className="lg:col-span-2">
-              <span className="text-xs font-bold uppercase text-slate-400">Giờ bắt đầu</span>
-              <input
-                type="time"
-                required
-                value={form.start_time}
-                onChange={event => setForm({ ...form, start_time: event.target.value })}
-                className="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-              />
-            </label>
-            <label className="lg:col-span-2">
-              <span className="text-xs font-bold uppercase text-slate-400">Giờ kết thúc</span>
-              <input
-                type="time"
-                required
-                value={form.end_time}
-                onChange={event => setForm({ ...form, end_time: event.target.value })}
-                className="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
-              />
-            </label>
+            {form.daySlots.length > 0 && (
+              <div className="lg:col-span-6 grid gap-3 md:grid-cols-2">
+                {form.daySlots.slice().sort((a, b) => a.day - b.day).map(item => {
+                  const label = weekdays.find(day => day.value === item.day)?.label;
+                  return (
+                    <div key={item.day} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <p className="mb-3 text-sm font-extrabold text-slate-800">{label}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label>
+                          <span className="text-xs font-bold uppercase text-slate-400">Bắt đầu</span>
+                          <input
+                            type="time"
+                            required
+                            value={item.start_time}
+                            onChange={event => updateDaySlot(item.day, 'start_time', event.target.value)}
+                            className="mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                        <label>
+                          <span className="text-xs font-bold uppercase text-slate-400">Kết thúc</span>
+                          <input
+                            type="time"
+                            required
+                            value={item.end_time}
+                            onChange={event => updateDaySlot(item.day, 'end_time', event.target.value)}
+                            className="mt-2 w-full rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <label className="lg:col-span-2">
               <span className="text-xs font-bold uppercase text-slate-400">Giá mỗi giờ</span>
               <input

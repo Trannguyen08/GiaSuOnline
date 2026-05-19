@@ -28,7 +28,12 @@ export const useTutorStore = create<TutorState>((set) => ({
   updateProfile: async (data) => {
     set({ isLoading: true, error: null });
     try {
-      const updated = await tutorService.updateProfile(data);
+      const payload = {
+        ...data,
+        tutor_subjects: data.tutor_subjects || data.subjects,
+      };
+      delete payload.subjects;
+      const updated = await tutorService.updateProfile(payload);
       set({ profile: updated, isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });

@@ -1,7 +1,9 @@
 from django.urls import path
 from .views import (
     StudentCourseListView, StudentCourseDetailView, StudentSessionCompleteView,
+    StudentCourseReviewView, StudentCourseExtensionRequestView,
     TutorCourseListView, TutorCourseDetailView,
+    TutorCourseReviewListView, TutorExtensionRequestListView, TutorExtensionRequestDecisionView,
     TutorSessionUpdateView, TutorSessionMaterialUploadView,
     TutorSessionMaterialPresignView, TutorSessionMaterialCompleteView,
     TutorStudyRoomListCreateView, TutorStudyRoomDetailView,
@@ -16,10 +18,15 @@ urlpatterns = [
     # Student endpoints
     path('student/', StudentCourseListView.as_view(), name='student-courses'),
     path('student/<int:pk>/', StudentCourseDetailView.as_view(), name='student-course-detail'),
+    path('student/<int:pk>/review/', StudentCourseReviewView.as_view(), name='student-course-review'),
+    path('student/<int:pk>/extend/', StudentCourseExtensionRequestView.as_view(), name='student-course-extend'),
     path('sessions/<int:session_id>/complete/', StudentSessionCompleteView.as_view(), name='session-complete'),
 
     # Tutor endpoints
     path('tutor/', TutorCourseListView.as_view(), name='tutor-courses'),
+    path('tutor/reviews/', TutorCourseReviewListView.as_view(), name='tutor-course-reviews'),
+    path('tutor/extensions/', TutorExtensionRequestListView.as_view(), name='tutor-extension-requests'),
+    path('tutor/extensions/<int:pk>/decision/', TutorExtensionRequestDecisionView.as_view(), name='tutor-extension-decision'),
     path('tutor/<int:pk>/', TutorCourseDetailView.as_view(), name='tutor-course-detail'),
     path('tutor/sessions/<int:session_id>/update/', TutorSessionUpdateView.as_view(), name='tutor-session-update'),
     path('tutor/sessions/<int:session_id>/materials/', TutorSessionMaterialUploadView.as_view(), name='tutor-session-materials'),

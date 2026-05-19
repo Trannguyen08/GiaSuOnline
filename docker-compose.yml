@@ -45,6 +45,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ai_service:
+        condition: service_started
+
+  ai_service:
+    build:
+      context: ./ai_service
+    env_file: .env
+    environment:
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4.1-mini}
+    ports:
+      - "8010:8010"
 
   channels:
     build:

@@ -10,6 +10,8 @@ const TutorDetail: React.FC = () => {
   const { showToast } = useToast();
   const [tutor, setTutor] = useState<any>(null);
   const [slots, setSlots] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
   const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
   const [booking, setBooking] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -22,8 +24,11 @@ const TutorDetail: React.FC = () => {
     try {
       const res = await api.get(`/tutors/public/${id}/`);
       setTutor(res.data);
+      setSelectedSubjectId(res.data.tutor_subjects?.[0]?.subject?.toString() || '');
       const slotData = await bookingsApi.getPublicTutorSlots(id!);
       setSlots(slotData);
+      const reviewRes = await api.get(`/tutors/public/${id}/reviews/`);
+      setReviews(reviewRes.data);
     } catch (err) {
       console.error("Error fetching tutor detail:", err);
     } finally {
@@ -33,9 +38,13 @@ const TutorDetail: React.FC = () => {
 
   const handleBookSlot = async () => {
     if (!selectedSlotId) return;
+    if (!selectedSubjectId) {
+      showToast('Vui lòng chọn môn học trước khi đặt lịch.', 'error');
+      return;
+    }
     setBooking(true);
     try {
-      await bookingsApi.bookSlot(selectedSlotId);
+      await bookingsApi.bookSlot(selectedSlotId, { subject: selectedSubjectId });
       setSlots(slots.filter(slot => slot.id !== selectedSlotId));
       setSelectedSlotId(null);
       showToast('Đăng ký lịch học thành công!', 'success');
@@ -105,7 +114,7 @@ const TutorDetail: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 text-gray-500 font-medium">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    {tutor.location || 'Toàn quốc'}
+                    {tutor.teaching_region || tutor.location || 'Toàn quốc'}
                   </div>
                   <div className="flex items-center gap-2 text-gray-500 font-medium">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-10V4m0 10V4m-4 18c0 1.105.895 2 2 2s2-.895 2-2M9 21c0 1.105.895 2 2 2s2-.895 2-2" /></svg>
@@ -135,6 +144,13 @@ const TutorDetail: React.FC = () => {
             <p className="text-gray-600 leading-relaxed text-[15px]">
               {tutor.bio}
             </p>
+            {tutor.teaching_levels?.length > 0 && (
+              <div className="mt-6 flex flex-wrap gap-2">
+                {tutor.teaching_levels.map((level: string) => (
+                  <span key={level} className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-[#5a5ce6]">{level}</span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Education & Experience */}
@@ -171,6 +187,26 @@ const TutorDetail: React.FC = () => {
               ))}
             </div>
           </div>
+
+          {((tutor.degree_images?.length || tutor.degree_image_url) || tutor.achievements?.length > 0) && (
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
+              <h3 className="text-xl font-bold text-[#1e1b4b] mb-6">Bằng cấp & thành tích</h3>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {(tutor.degree_images?.length ? tutor.degree_images : tutor.degree_image_url ? [{ image_url: tutor.degree_image_url }] : []).map((item: any, index: number) => (
+                  <a key={item.id || index} href={item.image_url} target="_blank" rel="noreferrer" className="block rounded-2xl border border-indigo-50 overflow-hidden bg-gray-50">
+                    <img src={item.image_url} alt="Bằng cấp" className="h-48 w-full object-cover" />
+                    <p className="p-3 text-sm font-bold text-gray-700">Ảnh bằng cấp {index + 1}</p>
+                  </a>
+                ))}
+                {tutor.achievements?.map((item: any) => (
+                  <a key={item.id} href={item.image_url} target="_blank" rel="noreferrer" className="block rounded-2xl border border-indigo-50 overflow-hidden bg-gray-50">
+                    <img src={item.image_url} alt={item.description || 'Thành tích'} className="h-48 w-full object-cover" />
+                    <p className="p-3 text-sm font-bold text-gray-700">{item.description || 'Thành tích nổi bật'}</p>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Weekly Schedule */}
           <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
@@ -268,7 +304,31 @@ const TutorDetail: React.FC = () => {
             </div>
 
             <div className="space-y-8">
-              <div className="pb-8 border-b border-gray-50">
+              {reviews.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center text-sm font-medium text-gray-400">
+                  Chưa có đánh giá từ học viên.
+                </div>
+              ) : reviews.map((review, index) => (
+                <div key={review.id} className={index < reviews.length - 1 ? 'pb-8 border-b border-gray-50' : 'pb-4'}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex gap-4">
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${review.student_name}`} alt="student" className="w-10 h-10 rounded-xl object-cover" />
+                      <div>
+                        <h4 className="font-bold text-gray-900">{review.student_name}</h4>
+                        <p className="text-[10px] text-gray-400 font-medium">{review.subject_name || 'Khóa học đã hoàn thành'}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-0.5">
+                      {[1,2,3,4,5].map(i => (
+                        <svg key={i} className={`w-3.5 h-3.5 ${i <= review.rating ? 'text-yellow-400' : 'text-gray-200'} fill-current`} viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600 leading-relaxed">{review.comment}</p>
+                  <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">{new Date(review.created_at).toLocaleDateString('vi-VN')}</p>
+                </div>
+              ))}
+              {false && <div className="pb-8 border-b border-gray-50">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex gap-4">
                     <img src="https://i.pravatar.cc/150?u=s1" alt="student" className="w-10 h-10 rounded-xl object-cover" />
@@ -287,9 +347,9 @@ const TutorDetail: React.FC = () => {
                   "Chị Minh Anh dạy rất nhiệt tình và dễ hiểu. Nhờ chị mà phần Writing của mình tiến bộ rõ rệt, từ mức 5.5 lên 7.0 chỉ sau 3 tháng học."
                 </p>
                 <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">2 ngày trước</p>
-              </div>
+              </div>}
 
-              <div className="pb-4">
+              {false && <div className="pb-4">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex gap-4">
                     <img src="https://i.pravatar.cc/150?u=s2" alt="parent" className="w-10 h-10 rounded-xl object-cover" />
@@ -308,7 +368,7 @@ const TutorDetail: React.FC = () => {
                   "Gia sư đúng giờ, phương pháp giảng dạy hiện đại giúp bé nhà tôi không còn sợ môn Tiếng Anh nữa. Rất hài lòng với sự tận tâm của cô giáo."
                 </p>
                 <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">1 tuần trước</p>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
@@ -322,9 +382,13 @@ const TutorDetail: React.FC = () => {
               <div className="space-y-6">
                 <div>
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 block">Chọn môn học</label>
-                  <select className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none">
+                  <select
+                    value={selectedSubjectId}
+                    onChange={event => setSelectedSubjectId(event.target.value)}
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  >
                     {tutor.tutor_subjects?.map((ts: any) => (
-                      <option key={ts.id}>{ts.subject_name} - {ts.level}</option>
+                      <option key={ts.id} value={ts.subject}>{ts.subject_name} - {ts.level}</option>
                     ))}
                   </select>
                 </div>

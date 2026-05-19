@@ -60,6 +60,10 @@ class Course(models.Model):
             scheduled_date__range=[start_of_week, end_of_week]
         ).count()
 
+    @property
+    def can_student_review(self):
+        return bool(self.end_date and self.end_date < timezone.localdate() and not hasattr(self, 'review'))
+
 
 class CourseSession(models.Model):
     """Buổi học trong một khóa học"""
@@ -214,3 +218,40 @@ class StudyRoomRead(models.Model):
 
     def __str__(self):
         return f"{self.student.email} read {self.session.title}"
+
+
+class CourseReview(models.Model):
+    course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name='review')
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='course_reviews')
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='course_reviews')
+    rating = models.PositiveSmallIntegerField()
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Review {self.rating}/5 for {self.course.title}"
+
+
+class CourseExtensionRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='extension_requests')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='course_extension_requests')
+    requested_end_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    tutor_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Extend {self.course_id} to {self.requested_end_date}"

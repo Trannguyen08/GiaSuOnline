@@ -6,6 +6,8 @@ from .models import Booking, TutorAvailability, TeachingSlot
 from .serializers import BookingSerializer, TutorAvailabilitySerializer, TeachingSlotSerializer
 from apps.users.serializers import UserSerializer
 from django.contrib.auth import get_user_model
+from apps.tutors.models import TutorSubject
+from apps.courses.models import Course, CourseSession
 
 User = get_user_model()
 
@@ -149,19 +151,53 @@ class StudentBookSlotView(APIView):
         if slot.status != 'available':
             return Response({"error": "Slot is no longer available"}, status=status.HTTP_400_BAD_REQUEST)
 
+        subject_id = request.data.get('subject') or getattr(slot.subject, 'id', None)
+        if not subject_id:
+            return Response({"subject": "Please choose a subject for this schedule."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            tutor_subject = TutorSubject.objects.select_related('subject').get(
+                tutor=slot.tutor,
+                subject_id=subject_id,
+            )
+        except TutorSubject.DoesNotExist:
+            return Response({"subject": "This tutor does not teach the selected subject."}, status=status.HTTP_400_BAD_REQUEST)
+
         booking = Booking.objects.create(
             student=request.user,
             tutor=slot.tutor,
-            subject=slot.subject,
+            subject=tutor_subject.subject,
             start_time=slot.start_time,
             end_time=slot.end_time,
-            total_price=slot.price,
+            total_price=slot.price or tutor_subject.hourly_rate,
             notes=request.data.get('notes', ''),
             teaching_slot=slot,
             status='confirmed',
         )
         slot.status = 'booked'
         slot.save(update_fields=['status'])
+
+        course = Course.objects.create(
+            student=request.user,
+            tutor=slot.tutor,
+            subject=tutor_subject.subject,
+            title=f"{tutor_subject.subject.name} với {slot.tutor.full_name or slot.tutor.user.username}",
+            description=request.data.get('notes', ''),
+            total_sessions=1,
+            session_duration_minutes=max(30, int((slot.end_time - slot.start_time).total_seconds() // 60)),
+            schedule_time=slot.start_time.strftime('%d/%m/%Y %H:%M'),
+            start_date=slot.start_time.date(),
+            end_date=slot.end_time.date(),
+            hourly_rate=tutor_subject.hourly_rate,
+            status='active',
+        )
+        CourseSession.objects.create(
+            course=course,
+            session_number=1,
+            title='Buổi học đầu tiên',
+            scheduled_date=slot.start_time.date(),
+            scheduled_time=slot.start_time.time(),
+        )
 
         serializer = BookingSerializer(booking, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)

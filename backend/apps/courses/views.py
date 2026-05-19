@@ -6,11 +6,13 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.db.models import Avg
 from datetime import date, timedelta
 
 from .models import (
     Course, CourseSession, SessionMaterial,
-    StudyRoom, StudyRoomStudent, StudyRoomSession, StudyRoomMaterial, StudyRoomRead
+    StudyRoom, StudyRoomStudent, StudyRoomSession, StudyRoomMaterial, StudyRoomRead,
+    CourseReview, CourseExtensionRequest
 )
 from .serializers import (
     CourseListSerializer, CourseDetailSerializer,
@@ -18,7 +20,8 @@ from .serializers import (
     SessionMaterialSerializer,
     StudyRoomListSerializer, StudyRoomDetailSerializer,
     StudyRoomSessionSerializer, StudyRoomMaterialSerializer,
-    StudyRoomStudentAddSerializer
+    StudyRoomStudentAddSerializer, CourseReviewSerializer,
+    CourseExtensionRequestSerializer
 )
 from core.s3_uploads import (
     build_material_key, create_presigned_post, public_s3_url,
@@ -131,6 +134,55 @@ class StudentSessionCompleteView(APIView):
         })
 
 
+class StudentCourseReviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            course = Course.objects.select_related('tutor').get(pk=pk, student=request.user)
+        except Course.DoesNotExist:
+            return Response({'error': 'Không tìm thấy khóa học'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not course.end_date or course.end_date >= timezone.localdate():
+            return Response({'error': 'Chỉ có thể đánh giá sau ngày kết thúc khóa học'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if hasattr(course, 'review'):
+            return Response({'error': 'Bạn đã đánh giá khóa học này'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = CourseReviewSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            review = serializer.save(course=course, student=request.user, tutor=course.tutor)
+            stats = CourseReview.objects.filter(tutor=course.tutor).aggregate(avg=Avg('rating'))
+            course.tutor.rating_avg = stats['avg'] or 0
+            course.tutor.total_reviews = CourseReview.objects.filter(tutor=course.tutor).count()
+            course.tutor.save(update_fields=['rating_avg', 'total_reviews'])
+            return Response(CourseReviewSerializer(review, context={'request': request}).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StudentCourseExtensionRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            course = Course.objects.get(pk=pk, student=request.user)
+        except Course.DoesNotExist:
+            return Response({'error': 'Không tìm thấy khóa học'}, status=status.HTTP_404_NOT_FOUND)
+
+        requested_end_date = request.data.get('requested_end_date')
+        if not requested_end_date:
+            return Response({'requested_end_date': 'This field is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if CourseExtensionRequest.objects.filter(course=course, status='pending').exists():
+            return Response({'error': 'Khóa học đang có yêu cầu gia hạn chờ xử lý'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = CourseExtensionRequestSerializer(data={'requested_end_date': requested_end_date}, context={'request': request})
+        if serializer.is_valid():
+            extension = serializer.save(course=course, requested_by=request.user)
+            return Response(CourseExtensionRequestSerializer(extension).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 # ─── TUTOR VIEWS ─────────────────────────────────────────────────────────────
 
 class TutorCourseListView(APIView):
@@ -153,6 +205,56 @@ class TutorCourseListView(APIView):
             'total_students': courses.values('student').distinct().count(),
             'active_courses': courses.filter(status='active').count(),
         })
+
+
+class TutorCourseReviewListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        reviews = CourseReview.objects.filter(
+            tutor=request.user.teaching_profile
+        ).select_related('student', 'course__subject').order_by('-created_at')
+        return Response(CourseReviewSerializer(reviews, many=True, context={'request': request}).data)
+
+
+class TutorExtensionRequestListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        extensions = CourseExtensionRequest.objects.filter(
+            course__tutor=request.user.teaching_profile
+        ).select_related('course__student', 'course').order_by('-created_at')
+        return Response(CourseExtensionRequestSerializer(extensions, many=True).data)
+
+
+class TutorExtensionRequestDecisionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            extension = CourseExtensionRequest.objects.select_related('course').get(
+                pk=pk,
+                course__tutor=request.user.teaching_profile,
+                status='pending',
+            )
+        except CourseExtensionRequest.DoesNotExist:
+            return Response({'error': 'Không tìm thấy yêu cầu gia hạn'}, status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get('action')
+        if action not in ['approve', 'reject']:
+            return Response({'action': 'Use approve or reject.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        extension.status = 'approved' if action == 'approve' else 'rejected'
+        extension.tutor_note = request.data.get('tutor_note', '')
+        extension.responded_at = timezone.now()
+        extension.save(update_fields=['status', 'tutor_note', 'responded_at'])
+
+        if action == 'approve':
+            extension.course.end_date = extension.requested_end_date
+            extension.course.status = 'active'
+            extension.course.save(update_fields=['end_date', 'status', 'updated_at'])
+
+        return Response(CourseExtensionRequestSerializer(extension).data)
 
 
 class TutorCourseDetailView(APIView):

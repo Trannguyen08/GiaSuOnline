@@ -165,8 +165,10 @@ const SessionDetailDrawer = ({ session, onClose, onComplete }: any) => {
 const CourseDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { course, loading, fetchDetail, completeSession } = useStudentCourseDetail(Number(id));
+  const { course, loading, fetchDetail, completeSession, reviewCourse, requestExtension } = useStudentCourseDetail(Number(id));
   const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
+  const [extensionEndDate, setExtensionEndDate] = useState('');
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
@@ -186,6 +188,7 @@ const CourseDetail: React.FC = () => {
 
   const completedSessions = course.sessions?.filter((s: any) => s.student_completed) || [];
   const pendingSessions = course.sessions?.filter((s: any) => !s.student_completed) || [];
+  const hasPendingExtension = Boolean(course.pending_extension_request);
 
   return (
     <div className="min-h-screen bg-gray-50/50">
@@ -242,6 +245,53 @@ const CourseDetail: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+            <h2 className="font-extrabold text-slate-800 mb-3">Gia hạn khóa học</h2>
+            {hasPendingExtension ? (
+              <p className="text-sm text-amber-600 font-semibold">
+                Đang chờ gia sư duyệt gia hạn đến {course.pending_extension_request.requested_end_date}.
+              </p>
+            ) : (
+              <div className="flex gap-3">
+                <input type="date" value={extensionEndDate} onChange={e => setExtensionEndDate(e.target.value)} className="flex-1 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none" />
+                <button
+                  onClick={async () => {
+                    if (!extensionEndDate) return;
+                    await requestExtension(extensionEndDate);
+                    setExtensionEndDate('');
+                  }}
+                  className="px-5 py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700"
+                >
+                  Gửi yêu cầu
+                </button>
+              </div>
+            )}
+          </div>
+
+          {course.can_review && (
+            <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+              <h2 className="font-extrabold text-slate-800 mb-3">Đánh giá gia sư</h2>
+              <div className="space-y-3">
+                <select value={reviewForm.rating} onChange={e => setReviewForm({ ...reviewForm, rating: Number(e.target.value) })} className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none">
+                  {[5,4,3,2,1].map(value => <option key={value} value={value}>{value} sao</option>)}
+                </select>
+                <textarea rows={3} value={reviewForm.comment} onChange={e => setReviewForm({ ...reviewForm, comment: e.target.value })} placeholder="Viết nhận xét của bạn..." className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none resize-none" />
+                <button
+                  onClick={async () => {
+                    if (!reviewForm.comment.trim()) return;
+                    await reviewCourse(reviewForm);
+                    setReviewForm({ rating: 5, comment: '' });
+                  }}
+                  className="w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700"
+                >
+                  Gửi đánh giá
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sessions */}

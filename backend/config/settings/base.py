@@ -162,6 +162,8 @@ SESSION_MATERIAL_ALLOWED_TYPES = [
     'video/quicktime',
 ]
 
+AI_SERVICE_URL = config('AI_SERVICE_URL', default='http://ai_service:8010')
+
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = config('EMAIL_HOST')
 EMAIL_PORT = config('EMAIL_PORT', cast=int)
