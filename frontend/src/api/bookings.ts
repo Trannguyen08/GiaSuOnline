@@ -1,0 +1,12 @@
+import client from './client';
+
+export const bookingsApi = {
+  getTutorSlots: () => client.get('/bookings/tutor/slots/').then(r => r.data),
+  createTutorSlot: (data: any) => client.post('/bookings/tutor/slots/', data).then(r => r.data),
+  updateTutorSlot: (id: number, data: any) => client.patch(`/bookings/tutor/slots/${id}/`, data).then(r => r.data),
+  deleteTutorSlot: (id: number) => client.delete(`/bookings/tutor/slots/${id}/`),
+  getTutorBookings: () => client.get('/bookings/tutor/bookings/').then(r => r.data),
+  getTutorStudents: () => client.get('/bookings/tutor/students/').then(r => r.data),
+  getPublicTutorSlots: (tutorId: number | string) => client.get(`/bookings/public/tutors/${tutorId}/slots/`).then(r => r.data),
+  bookSlot: (slotId: number, data: any = {}) => client.post(`/bookings/student/slots/${slotId}/book/`, data).then(r => r.data),
+};

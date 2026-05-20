@@ -1,295 +1,373 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import client from '../../api/client';
+import { useToast } from '../../components/ui/Toast';
+
+const TEACHING_LEVELS = ['Tiểu học', 'THCS', 'THPT', 'Đại học', 'Người đi làm'];
+
+const VIETNAM_PROVINCES = [
+  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cần Thơ', 'Cao Bằng', 'Đà Nẵng',
+  'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Nội',
+  'Hà Tĩnh', 'Hải Phòng', 'Huế', 'Hưng Yên', 'Khánh Hòa', 'Lai Châu',
+  'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ',
+  'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh',
+  'Thái Nguyên', 'Thanh Hóa', 'TP Hồ Chí Minh', 'Tuyên Quang', 'Vĩnh Long',
+];
 
 const TutorRegister: React.FC = () => {
+  const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+    email: '',
+    birthday: '',
+    university: '',
+    qualification: '',
+    subjects_text: '',
+    experience_years: '0',
+    teaching_region: '',
+    password: '',
+    password_confirm: '',
+    address: '',
+  });
 
-  // File states
+  const [avatar, setAvatar] = useState<File | null>(null);
   const [idFront, setIdFront] = useState<File | null>(null);
   const [idBack, setIdBack] = useState<File | null>(null);
-  const [degree, setDegree] = useState<File | null>(null);
+  const [degrees, setDegrees] = useState<File[]>([]);
   const [achievements, setAchievements] = useState<File[]>([]);
+  const [teachingLevels, setTeachingLevels] = useState<string[]>([]);
 
-  // Refs for hidden inputs
+  const avatarRef = useRef<HTMLInputElement>(null);
   const idFrontRef = useRef<HTMLInputElement>(null);
   const idBackRef = useRef<HTMLInputElement>(null);
   const degreeRef = useRef<HTMLInputElement>(null);
   const achievementRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = event.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
 
-    const file = files[0];
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Kích thước file không được vượt quá 5MB");
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: string) => {
+    const selected = Array.from(event.target.files || []);
+    if (selected.length === 0) return;
+    if (selected.some(file => file.size > 5 * 1024 * 1024)) {
+      showToast('Kích thước mỗi ảnh không được vượt quá 5MB.', 'error');
       return;
     }
 
-    switch (type) {
-      case 'idFront': setIdFront(file); break;
-      case 'idBack': setIdBack(file); break;
-      case 'degree': setDegree(file); break;
-      case 'achievement': 
-        setAchievements(prev => [...prev, ...Array.from(files)]);
-        break;
-    }
+    if (type === 'avatar') setAvatar(selected[0]);
+    if (type === 'idFront') setIdFront(selected[0]);
+    if (type === 'idBack') setIdBack(selected[0]);
+    if (type === 'degree') setDegrees(prev => [...prev, ...selected]);
+    if (type === 'achievement') setAchievements(prev => [...prev, ...selected]);
+    event.target.value = '';
+  };
+
+  const toggleTeachingLevel = (level: string) => {
+    setTeachingLevels(prev => prev.includes(level) ? prev.filter(item => item !== level) : [...prev, level]);
+  };
+
+  const removeDegree = (index: number) => {
+    setDegrees(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const removeAchievement = (index: number) => {
-    setAchievements(prev => prev.filter((_, i) => i !== index));
+    setAchievements(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  const FilePreview = ({ file, onRemove }: { file: File, onRemove: () => void }) => (
-    <div className="relative group w-full h-full bg-gray-50 rounded-xl overflow-hidden">
-      <img 
-        src={URL.createObjectURL(file)} 
-        alt="Preview" 
-        className="w-full h-full object-contain"
-      />
-      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        <button 
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-        </button>
-      </div>
-    </div>
-  );
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSubmitMessage('');
+
+    if (formData.password !== formData.password_confirm) {
+      setSubmitMessage('Mật khẩu xác nhận không khớp.');
+      showToast('Mật khẩu xác nhận không khớp.', 'error');
+      return;
+    }
+
+    if (!idFront || !idBack || degrees.length === 0) {
+      setSubmitMessage('Vui lòng tải lên CCCD hai mặt và ít nhất một ảnh bằng cấp.');
+      showToast('Vui lòng tải lên CCCD hai mặt và ít nhất một ảnh bằng cấp.', 'error');
+      return;
+    }
+
+    if (teachingLevels.length === 0) {
+      setSubmitMessage('Vui lòng chọn ít nhất một đối tượng giảng dạy.');
+      showToast('Vui lòng chọn ít nhất một đối tượng giảng dạy.', 'error');
+      return;
+    }
+
+    const payload = new FormData();
+    Object.entries(formData).forEach(([key, value]) => payload.append(key, value));
+    teachingLevels.forEach(level => payload.append('teaching_levels', level));
+    if (avatar) payload.append('avatar', avatar);
+    payload.append('id_front', idFront);
+    payload.append('id_back', idBack);
+    payload.append('degree', degrees[0]);
+    degrees.forEach(file => payload.append('degrees', file));
+    achievements.forEach(file => payload.append('achievements', file));
+
+    try {
+      setIsSubmitting(true);
+      const res = await client.post('/auth/register/tutor/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setSubmitMessage(res.data?.message || 'Đăng ký thành công. Hồ sơ đang chờ duyệt.');
+      showToast(res.data?.message || 'Đăng ký thành công. Hồ sơ đang chờ duyệt.', 'success');
+    } catch (error: any) {
+      setSubmitMessage(error.response?.data?.error || 'Đăng ký không thành công. Vui lòng thử lại.');
+      showToast(error.response?.data?.error || 'Đăng ký không thành công. Vui lòng thử lại.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex-1 w-full bg-[#f8fafc] py-8">
       <div className="max-w-[1200px] mx-auto px-6 grid md:grid-cols-12 gap-8">
-        
-        {/* Left Info Column */}
-        <div className="md:col-span-4 flex flex-col gap-6">
+        <aside className="md:col-span-4 flex flex-col gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-50">
             <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-[#5a5ce6] mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              <ShieldIcon />
             </div>
-            <h3 className="font-bold text-lg text-[#5a5ce6] mb-3">Tại sao cần xác thực?</h3>
+            <h3 className="font-bold text-lg text-[#5a5ce6] mb-3">Xác thực hồ sơ gia sư</h3>
             <p className="text-sm text-gray-600 mb-6 leading-relaxed">
-              Để đảm bảo uy tín và chất lượng đào tạo, TutorMatch yêu cầu các giảng viên cung cấp đầy đủ giấy tờ tùy thân và bằng cấp chuyên môn. Thông tin của bạn được bảo mật tuyệt đối 100%.
+              Ảnh chân dung rõ mặt, giấy tờ tùy thân và bằng cấp giúp quản trị viên duyệt hồ sơ nhanh hơn, đồng thời tăng độ tin cậy khi học sinh xem hồ sơ.
             </p>
             <ul className="flex flex-col gap-3">
-              <li className="flex items-center gap-2 text-sm text-gray-700 font-medium">
-                <svg className="text-green-500" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                Tăng tỷ lệ duyệt hồ sơ lên 85%
-              </li>
-              <li className="flex items-center gap-2 text-sm text-gray-700 font-medium">
-                <svg className="text-green-500" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                Ưu tiên hiển thị top tìm kiếm
-              </li>
+              <CheckItem text="Thông tin được dùng cho xét duyệt hồ sơ" />
+              <CheckItem text="Bằng cấp có thể tải nhiều ảnh" />
+              <CheckItem text="Ảnh chân dung sẽ hiển thị trên hồ sơ gia sư" />
             </ul>
           </div>
 
-          <div className="relative rounded-2xl overflow-hidden shadow-sm h-[200px] flex items-end p-6 border border-indigo-100">
-            <div className="absolute inset-0 bg-gradient-to-t from-[#1e1b4b] via-[#312e81]/80 to-[#4f46e5]/40 z-10"></div>
-            <div className="absolute inset-0 bg-gradient-to-tr from-blue-400 to-indigo-300 z-0"></div>
-            <p className="relative z-20 text-white font-bold text-lg leading-tight">
-              "Gia nhập cộng đồng hơn 10,000 gia sư chất lượng cao tại Việt Nam."
+          <div className="rounded-2xl overflow-hidden shadow-sm border border-indigo-100 bg-white p-6">
+            <p className="text-sm font-bold text-[#1e1b4b] mb-2">Gợi ý ảnh chân dung</p>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Dùng ảnh sáng, chính diện, không che mặt. Ảnh tốt giúp học sinh nhận diện gia sư dễ hơn khi đặt lịch.
             </p>
           </div>
-        </div>
+        </aside>
 
-        {/* Right Form Column */}
-        <div className="md:col-span-8 flex flex-col gap-6">
-          
-          {/* Section: Thông tin cá nhân */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+        <form onSubmit={handleSubmit} className="md:col-span-8 flex flex-col gap-6">
+          <section className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center gap-2 mb-6">
-              <svg className="text-[#5a5ce6]" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <UserIcon />
               <h2 className="font-bold text-gray-800 text-lg">Thông tin cá nhân</h2>
             </div>
 
+            <div className="mb-8 flex flex-col sm:flex-row gap-6 sm:items-center">
+              <button
+                type="button"
+                onClick={() => avatarRef.current?.click()}
+                className="relative w-32 h-32 rounded-3xl border-2 border-dashed border-indigo-100 bg-indigo-50/30 overflow-hidden flex items-center justify-center text-center hover:bg-indigo-50 transition-all"
+              >
+                <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFileChange(e, 'avatar')} />
+                {avatar ? (
+                  <img src={URL.createObjectURL(avatar)} alt="Ảnh chân dung" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="px-4">
+                    <ImageIcon />
+                    <p className="text-[11px] font-bold text-indigo-600 mt-2">Ảnh chân dung</p>
+                  </div>
+                )}
+              </button>
+              <div>
+                <p className="font-bold text-gray-900">Ảnh chân dung gia sư</p>
+                <p className="text-sm text-gray-500 mt-1">Không bắt buộc, nhưng nên thêm để hồ sơ trông đáng tin cậy hơn.</p>
+                {avatar && (
+                  <button type="button" onClick={() => setAvatar(null)} className="mt-3 text-sm font-bold text-rose-500 hover:underline">
+                    Xóa ảnh chân dung
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Họ và tên</label>
-                <input type="text" placeholder="Nhập đầy đủ họ tên" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Số điện thoại</label>
-                <input type="tel" placeholder="090-xxx-xxxx" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Email</label>
-                <input type="email" placeholder="example@email.com" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Ngày sinh</label>
-                <input type="date" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm text-gray-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Trường đại học</label>
-                <input type="text" placeholder="Nhập tên trường đại học" className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Trình độ chuyên môn</label>
-                <select className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm bg-white text-gray-500">
+              <TextInput label="Họ và tên" name="full_name" value={formData.full_name} onChange={handleInputChange} required placeholder="Nhập đầy đủ họ tên" />
+              <TextInput label="Số điện thoại" name="phone" value={formData.phone} onChange={handleInputChange} required placeholder="090-xxx-xxxx" />
+              <TextInput label="Email" name="email" type="email" value={formData.email} onChange={handleInputChange} required placeholder="example@email.com" />
+              <TextInput label="Ngày sinh" name="birthday" type="date" value={formData.birthday} onChange={handleInputChange} />
+              <TextInput label="Trường đại học" name="university" value={formData.university} onChange={handleInputChange} required placeholder="Nhập tên trường đại học" />
+              <label>
+                <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Trình độ chuyên môn</span>
+                <select name="qualification" value={formData.qualification} onChange={handleInputChange} required className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm bg-white text-gray-600">
                   <option value="">Chọn trình độ</option>
                   <option value="Sinh viên">Sinh viên</option>
                   <option value="Cử nhân">Cử nhân</option>
                   <option value="Thạc sĩ">Thạc sĩ</option>
                   <option value="Giáo viên">Giáo viên</option>
                 </select>
-              </div>
-              
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Mật khẩu</label>
-                <div className="relative">
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    placeholder="••••••••" 
-                    className="w-full px-4 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm placeholder:text-gray-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-[#5a5ce6] transition-colors"
-                  >
-                    {showPassword ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Xác nhận mật khẩu</label>
-                <div className="relative">
-                  <input 
-                    type={showConfirmPassword ? "text" : "password"} 
-                    placeholder="••••••••" 
-                    className="w-full px-4 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm placeholder:text-gray-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-[#5a5ce6] transition-colors"
-                  >
-                    {showConfirmPassword ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    )}
-                  </button>
-                </div>
-              </div>
+              </label>
+              <TextInput label="Số năm kinh nghiệm giảng dạy" name="experience_years" type="number" min="0" value={formData.experience_years} onChange={handleInputChange} required placeholder="0" helper="Nhập 0 nếu chưa có kinh nghiệm giảng dạy." />
+              <label>
+                <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Khu vực dạy</span>
+                <select name="teaching_region" value={formData.teaching_region} onChange={handleInputChange} required className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm bg-white text-gray-600">
+                  <option value="">Chọn tỉnh/thành</option>
+                  {VIETNAM_PROVINCES.map(province => <option key={province} value={province}>{province}</option>)}
+                </select>
+              </label>
+              <label className="md:col-span-2">
+                <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Các môn dạy</span>
+                <textarea
+                  name="subjects_text"
+                  value={formData.subjects_text}
+                  onChange={(event) => setFormData(prev => ({ ...prev, subjects_text: event.target.value }))}
+                  required
+                  rows={3}
+                  placeholder={'VD: Toán, Vật lý, IELTS\nCó thể nhập mỗi môn một dòng hoặc ngăn cách bằng dấu phẩy.'}
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm resize-none"
+                />
+              </label>
               <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Địa chỉ hiện tại</label>
-                <input type="text" placeholder="Số nhà, tên đường, phường/xã..." className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+                <span className="block text-xs font-semibold text-gray-500 uppercase mb-2">Đối tượng giảng dạy</span>
+                <div className="flex flex-wrap gap-2">
+                  {TEACHING_LEVELS.map(level => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => toggleTeachingLevel(level)}
+                      className={`px-4 py-2 rounded-xl border text-sm font-bold transition-all ${teachingLevels.includes(level) ? 'bg-[#5a5ce6] border-[#5a5ce6] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-200'}`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <PasswordInput label="Mật khẩu" name="password" value={formData.password} show={showPassword} setShow={setShowPassword} onChange={handleInputChange} />
+              <PasswordInput label="Xác nhận mật khẩu" name="password_confirm" value={formData.password_confirm} show={showConfirmPassword} setShow={setShowConfirmPassword} onChange={handleInputChange} />
+              <div className="md:col-span-2">
+                <TextInput label="Địa chỉ hiện tại" name="address" value={formData.address} onChange={handleInputChange} required placeholder="Số nhà, tên đường, phường/xã..." />
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Section: Tải lên tài liệu */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+          <section className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
             <div className="flex items-center gap-2 mb-6">
-              <svg className="text-[#5a5ce6]" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <DocumentIcon />
               <h2 className="font-bold text-gray-800 text-lg">Tải lên tài liệu</h2>
             </div>
 
-            <div className="flex flex-col gap-8">
-              {/* CCCD Section */}
+            <div className="space-y-8">
               <div>
-                <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">1. Căn cước công dân (2 mặt)</h4>
-                  <span className="text-[10px] bg-indigo-50 text-[#5a5ce6] px-2 py-0.5 rounded-full font-bold">BẮT BUỘC</span>
-                </div>
+                <SectionTitle index="1" title="Căn cước công dân" required />
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Mặt trước */}
-                  <div 
-                    onClick={() => idFrontRef.current?.click()}
-                    className="aspect-[1.6/1] border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all cursor-pointer overflow-hidden relative"
-                  >
-                    <input type="file" ref={idFrontRef} onChange={(e) => handleFileChange(e, 'idFront')} className="hidden" accept="image/*" />
-                    {idFront ? (
-                      <FilePreview file={idFront} onRemove={() => setIdFront(null)} />
-                    ) : (
-                      <>
-                        <svg className="text-[#5a5ce6] mb-2 opacity-60" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                        <p className="text-[11px] text-gray-500 font-semibold">MẶT TRƯỚC</p>
-                      </>
-                    )}
-                  </div>
-                  {/* Mặt sau */}
-                  <div 
-                    onClick={() => idBackRef.current?.click()}
-                    className="aspect-[1.6/1] border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all cursor-pointer overflow-hidden relative"
-                  >
-                    <input type="file" ref={idBackRef} onChange={(e) => handleFileChange(e, 'idBack')} className="hidden" accept="image/*" />
-                    {idBack ? (
-                      <FilePreview file={idBack} onRemove={() => setIdBack(null)} />
-                    ) : (
-                      <>
-                        <svg className="text-[#5a5ce6] mb-2 opacity-60" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                        <p className="text-[11px] text-gray-500 font-semibold">MẶT SAU</p>
-                      </>
-                    )}
-                  </div>
+                  <UploadBox label="Mặt trước" file={idFront} inputRef={idFrontRef} onPick={(e) => handleFileChange(e, 'idFront')} onRemove={() => setIdFront(null)} />
+                  <UploadBox label="Mặt sau" file={idBack} inputRef={idBackRef} onPick={(e) => handleFileChange(e, 'idBack')} onRemove={() => setIdBack(null)} />
                 </div>
               </div>
 
-              {/* Degree Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider">2. Bằng cấp chuyên môn (Tối đa 1)</h4>
-                <div 
-                  onClick={() => degreeRef.current?.click()}
-                  className="w-full h-48 border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all cursor-pointer overflow-hidden relative"
-                >
-                  <input type="file" ref={degreeRef} onChange={(e) => handleFileChange(e, 'degree')} className="hidden" accept="image/*" />
-                  {degree ? (
-                    <FilePreview file={degree} onRemove={() => setDegree(null)} />
-                  ) : (
-                    <>
-                      <svg className="text-[#5a5ce6] mb-2" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-                      <p className="text-sm text-gray-600 font-medium">Tải lên bằng cử nhân / kỹ sư / thạc sĩ</p>
-                      <p className="text-[10px] text-gray-400 mt-1">Chỉ chấp nhận 1 file ảnh chất lượng cao</p>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Achievements Section */}
-              <div>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider">3. Thành tích nổi bật (Nhiều ảnh)</h4>
+                <SectionTitle index="2" title="Bằng cấp chuyên môn" required helper="Có thể tải nhiều ảnh bằng cấp, chứng chỉ, bảng điểm." />
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {achievements.map((file, idx) => (
-                    <div key={idx} className="aspect-square relative">
-                      <FilePreview file={file} onRemove={() => removeAchievement(idx)} />
+                  {degrees.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="aspect-square">
+                      <FilePreview file={file} onRemove={() => removeDegree(index)} />
                     </div>
                   ))}
-                  <div 
-                    onClick={() => achievementRef.current?.click()}
-                    className="aspect-square border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all cursor-pointer group"
-                  >
-                    <input type="file" ref={achievementRef} onChange={(e) => handleFileChange(e, 'achievement')} className="hidden" accept="image/*" multiple />
-                    <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-[#5a5ce6] group-hover:scale-110 transition-transform">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    </div>
-                    <p className="text-[10px] text-gray-500 font-bold mt-2">THÊM ẢNH</p>
-                  </div>
+                  <button type="button" onClick={() => degreeRef.current?.click()} className="aspect-square border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all">
+                    <input ref={degreeRef} type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleFileChange(e, 'degree')} />
+                    <PlusIcon />
+                    <p className="text-[10px] text-gray-500 font-bold mt-2">THÊM BẰNG CẤP</p>
+                  </button>
                 </div>
               </div>
 
+              <div>
+                <SectionTitle index="3" title="Thành tích nổi bật" helper="Không bắt buộc, có thể tải nhiều ảnh giải thưởng hoặc chứng nhận." />
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {achievements.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="aspect-square">
+                      <FilePreview file={file} onRemove={() => removeAchievement(index)} />
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => achievementRef.current?.click()} className="aspect-square border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all">
+                    <input ref={achievementRef} type="file" className="hidden" accept="image/*" multiple onChange={(e) => handleFileChange(e, 'achievement')} />
+                    <PlusIcon />
+                    <p className="text-[10px] text-gray-500 font-bold mt-2">THÊM ẢNH</p>
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Actions */}
-            <div className="mt-10 flex items-center justify-end pt-6 border-t border-gray-100">
-              <button className="px-12 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all">
-                Hoàn tất đăng ký
+            <div className="mt-10 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 pt-6 border-t border-gray-100">
+              {submitMessage && <p className="text-sm font-semibold text-slate-600">{submitMessage}</p>}
+              <button type="submit" disabled={isSubmitting} className="px-10 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-60">
+                {isSubmitting ? 'Đang gửi...' : 'Hoàn tất đăng ký'}
               </button>
             </div>
-
-          </div>
-
-        </div>
+          </section>
+        </form>
       </div>
     </div>
   );
 };
+
+const TextInput = ({ label, helper, ...props }: any) => (
+  <label>
+    <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{label}</span>
+    <input {...props} className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+    {helper && <span className="mt-1 block text-xs text-gray-400">{helper}</span>}
+  </label>
+);
+
+const PasswordInput = ({ label, name, value, show, setShow, onChange }: any) => (
+  <label>
+    <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">{label}</span>
+    <div className="relative">
+      <input name={name} value={value} onChange={onChange} required type={show ? 'text' : 'password'} placeholder="••••••••" className="w-full px-4 pr-10 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm" />
+      <button type="button" onClick={() => setShow(!show)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-[#5a5ce6]">
+        {show ? 'Ẩn' : 'Hiện'}
+      </button>
+    </div>
+  </label>
+);
+
+const UploadBox = ({ label, file, inputRef, onPick, onRemove }: any) => (
+  <button type="button" onClick={() => inputRef.current?.click()} className="aspect-[1.6/1] border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all cursor-pointer overflow-hidden relative">
+    <input type="file" ref={inputRef} onChange={onPick} className="hidden" accept="image/*" />
+    {file ? <FilePreview file={file} onRemove={onRemove} /> : <><ImageIcon /><p className="text-[11px] text-gray-500 font-semibold mt-2">{label}</p></>}
+  </button>
+);
+
+const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) => (
+  <div className="relative group w-full h-full bg-gray-50 rounded-xl overflow-hidden">
+    <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-contain" />
+    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+      <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(); }} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600">
+        <TrashIcon />
+      </button>
+    </div>
+  </div>
+);
+
+const SectionTitle = ({ index, title, required, helper }: any) => (
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+    <div>
+      <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{index}. {title}</h4>
+      {helper && <p className="text-xs text-gray-400 mt-1">{helper}</p>}
+    </div>
+    {required && <span className="self-start text-[10px] bg-indigo-50 text-[#5a5ce6] px-2 py-0.5 rounded-full font-bold">BẮT BUỘC</span>}
+  </div>
+);
+
+const CheckItem = ({ text }: { text: string }) => (
+  <li className="flex items-center gap-2 text-sm text-gray-700 font-medium">
+    <span className="text-green-500">✓</span>
+    {text}
+  </li>
+);
+
+const ShieldIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>;
+const UserIcon = () => <svg className="text-[#5a5ce6]" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
+const DocumentIcon = () => <svg className="text-[#5a5ce6]" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>;
+const ImageIcon = () => <svg className="mx-auto text-[#5a5ce6]" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>;
+const PlusIcon = () => <span className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-[#5a5ce6] text-2xl leading-none">+</span>;
+const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h10" /><path d="M6 6V4h4v2" /><path d="M5 6l1 8h4l1-8" /></svg>;
 
 export default TutorRegister;

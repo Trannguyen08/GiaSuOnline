@@ -15,11 +15,12 @@ class TutorProfile(models.Model):
         ('offline', 'Offline'),
         ('both', 'Both')
     ]
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='tutor_profile')
-    subjects = models.ManyToManyField(Subject, related_name='tutors')
-    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='teaching_profile')
+    full_name = models.CharField(max_length=255, blank=True)
+    title = models.CharField(max_length=255, blank=True) # Tiêu đề chuyên môn
+    bio = models.TextField(blank=True) # Giới thiệu bản thân
     experience_years = models.PositiveIntegerField(default=0)
-    education = models.TextField()
+    
     rating_avg = models.DecimalField(max_digits=3, decimal_places=2, default=0.0)
     total_reviews = models.PositiveIntegerField(default=0)
     is_available = models.BooleanField(default=True)
@@ -28,6 +29,41 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"TutorProfile for {self.user.username}"
+
+class TutorSubject(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='tutor_subjects')
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
+    level = models.CharField(max_length=100) # Cấp độ: Nâng cao, Cơ bản...
+    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.tutor.user.username} teaches {self.subject.name}"
+
+class TutorEducation(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='educations')
+    degree = models.CharField(max_length=255)
+    school = models.CharField(max_length=255)
+    years = models.CharField(max_length=100) # e.g. "2016 - 2018"
+
+    def __str__(self):
+        return f"{self.degree} at {self.school}"
+
+class TutorCertification(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='certifications')
+    title = models.CharField(max_length=255)
+    organization = models.CharField(max_length=255)
+    year = models.CharField(max_length=20)
+
+    def __str__(self):
+        return f"{self.title} from {self.organization}"
+
+class TutorFAQ(models.Model):
+    tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='faqs')
+    question = models.CharField(max_length=500)
+    answer = models.TextField()
+
+    def __str__(self):
+        return self.question
 
 class TutorDocument(models.Model):
     tutor = models.ForeignKey(TutorProfile, on_delete=models.CASCADE, related_name='documents')

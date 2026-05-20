@@ -33,6 +33,8 @@ INSTALLED_APPS = [
     'apps.bookings',
     'apps.notifications',
     'apps.chat',
+    'apps.admin_portal',
+    'apps.courses',
 ]
 
 MIDDLEWARE = [
@@ -115,14 +117,52 @@ if USE_S3:
     AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME', default='')
     AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='')
     AWS_S3_CUSTOM_DOMAIN = config('AWS_S3_CUSTOM_DOMAIN', default=f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com')
-    DEFAULT_FILE_STORAGE = 'core.storage.MediaStorage'
+    AWS_PRESIGNED_URL_EXPIRES_SECONDS = config('AWS_PRESIGNED_URL_EXPIRES_SECONDS', default=900, cast=int)
+    AWS_S3_UPLOAD_ACL = config('AWS_S3_UPLOAD_ACL', default='public-read')
+    STORAGES = {
+        'default': {
+            'BACKEND': 'core.storage.MediaStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
 else:
-    DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+        },
+    }
     MEDIA_URL = '/media/'
     MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+SESSION_MATERIAL_DIRECT_UPLOAD_MAX_MB = config('SESSION_MATERIAL_DIRECT_UPLOAD_MAX_MB', default=25, cast=int)
+SESSION_MATERIAL_PRESIGNED_UPLOAD_MAX_MB = config('SESSION_MATERIAL_PRESIGNED_UPLOAD_MAX_MB', default=500, cast=int)
+SESSION_MATERIAL_ALLOWED_TYPES = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
+]
+
+AI_SERVICE_URL = config('AI_SERVICE_URL', default='http://ai_service:8010')
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = config('EMAIL_HOST')
