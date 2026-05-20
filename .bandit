@@ -1,0 +1,3 @@
+[bandit]
+exclude_dirs = backend/venv,backend/.venv,backend/**/migrations
+skips = B105,B110,B310,B311
