@@ -1,3 +1,10 @@
+
+import sys
+from pathlib import Path
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
@@ -47,3 +54,4 @@ def criteria_llm_provider():
     """Provider that returns a fixed TutorSearchCriteria."""
     criteria = TutorSearchCriteria(subjects=["Toán"], location="Hà Nội")
     return StubLLMProvider(return_value=criteria)
+
