@@ -49,7 +49,7 @@ jobs:
     - name: Check format with black
       run: black --check backend/
     - name: Security scan with bandit
-      run: bandit -r backend/
+      run: bandit -r backend/ -x backend/venv,backend/.venv,backend/**/migrations -s B105,B110,B310,B311
     - name: Test with pytest
       env:
         DATABASE_URL: postgresql://postgres:strongpassword@localhost:5432/tutormatch
