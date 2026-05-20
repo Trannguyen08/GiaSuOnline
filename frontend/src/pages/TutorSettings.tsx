@@ -5,6 +5,8 @@ import { validateRequired } from '../utils/validation';
 import { Save, Eye, Camera, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '../components/ui/Toast';
 
+const BIO_MAX_LENGTH = 1000;
+
 const TutorSettings: React.FC = () => {
   const { profile, fetchProfile, updateProfile, isLoading } = useTutorStore();
   const { showToast } = useToast();
@@ -23,6 +25,10 @@ const TutorSettings: React.FC = () => {
   const handleSave = async () => {
     if (!validateRequired(formData.full_name)) {
       showToast("Họ tên là bắt buộc", 'error');
+      return;
+    }
+    if ((formData.bio || '').length > BIO_MAX_LENGTH) {
+      showToast(`Giới thiệu bản thân không được vượt quá ${BIO_MAX_LENGTH} ký tự.`, 'error');
       return;
     }
     await updateProfile(formData);
@@ -134,11 +140,17 @@ const TutorSettings: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 ml-1">Giới thiệu bản thân</label>
+                <div className="mb-2 ml-1 flex items-center justify-between gap-3">
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest">Giới thiệu bản thân</label>
+                  <span className={`text-xs font-bold ${(formData.bio || '').length > BIO_MAX_LENGTH ? 'text-rose-500' : 'text-gray-400'}`}>
+                    {(formData.bio || '').length}/{BIO_MAX_LENGTH}
+                  </span>
+                </div>
                 <textarea 
                   rows={4} 
                   value={formData.bio || ''}
                   onChange={e => setFormData({...formData, bio: e.target.value})}
+                  maxLength={BIO_MAX_LENGTH}
                   className="w-full px-5 py-4 rounded-2xl bg-gray-50 border-none focus:ring-2 focus:ring-blue-600/20 font-medium text-gray-600 transition-all resize-none outline-none"
                 ></textarea>
               </div>

@@ -72,7 +72,7 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
         model = UserTutorProfile
         fields = [
             'id', 'user', 'user_email', 'full_name', 'birthday', 'university',
-            'qualification', 'address', 'subjects_text', 'experience_years',
+            'qualification', 'bio', 'address', 'subjects_text', 'experience_years',
             'teaching_levels', 'teaching_region', 'id_front_url', 'id_back_url',
             'degree_image_url', 'degree_images', 'achievements', 'status', 'registration_status',
             'subjects', 'created_at',

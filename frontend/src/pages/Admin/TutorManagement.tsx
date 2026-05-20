@@ -152,6 +152,13 @@ const TutorProfileModal = ({
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="space-y-6">
                 <div>
+                  <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Mô tả bản thân</h4>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-700">
+                    {tutor.bio || 'Chưa có mô tả bản thân.'}
+                  </div>
+                </div>
+
+                <div>
                   <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Căn cước</h4>
                   <div className="grid gap-4 md:grid-cols-2">
                     {identityDocuments.map(([label, url]) => renderMediaCard(label as string, url as string))}
@@ -254,6 +261,7 @@ const TutorManagement: React.FC<TutorManagementProps> = ({ mode = 'management' }
             tutor.full_name,
             tutor.university,
             tutor.qualification,
+            tutor.bio,
             tutor.user?.email,
             tutor.user?.phone,
             tutor.address,

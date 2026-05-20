@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.core.validators import MaxLengthValidator
 
 class Subject(models.Model):
     name = models.CharField(max_length=100)
@@ -10,6 +11,8 @@ class Subject(models.Model):
         return self.name
 
 class TutorProfile(models.Model):
+    MAX_BIO_LENGTH = 1000
+
     TEACHING_MODES = [
         ('online', 'Online'),
         ('offline', 'Offline'),
@@ -18,7 +21,7 @@ class TutorProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='teaching_profile')
     full_name = models.CharField(max_length=255, blank=True)
     title = models.CharField(max_length=255, blank=True) # Tiêu đề chuyên môn
-    bio = models.TextField(blank=True) # Giới thiệu bản thân
+    bio = models.TextField(blank=True, max_length=MAX_BIO_LENGTH, validators=[MaxLengthValidator(MAX_BIO_LENGTH)]) # Giới thiệu bản thân
     experience_years = models.PositiveIntegerField(default=0)
     
     rating_avg = models.DecimalField(max_digits=3, decimal_places=2, default=0.0)

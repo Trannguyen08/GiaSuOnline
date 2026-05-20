@@ -17,3 +17,4 @@ gunicorn
 openai
 dj-database-url
 google-auth
+requests

@@ -142,7 +142,7 @@ const TutorDetail: React.FC = () => {
               Về bản thân
             </h3>
             <p className="text-gray-600 leading-relaxed text-[15px]">
-              {tutor.bio}
+              {tutor.bio || 'Gia sư chưa cập nhật mô tả bản thân.'}
             </p>
             {tutor.teaching_levels?.length > 0 && (
               <div className="mt-6 flex flex-wrap gap-2">

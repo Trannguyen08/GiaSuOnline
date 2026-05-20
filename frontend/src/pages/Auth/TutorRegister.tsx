@@ -3,6 +3,24 @@ import client from '../../api/client';
 import { useToast } from '../../components/ui/Toast';
 
 const TEACHING_LEVELS = ['Tiểu học', 'THCS', 'THPT', 'Đại học', 'Người đi làm'];
+const BIO_MAX_LENGTH = 1000;
+
+type DocumentType = 'portrait' | 'identity_card_front' | 'identity_card_back' | 'degree' | 'certificate';
+
+type ImagePrecheckResult = {
+  is_valid: boolean;
+  score: number;
+  can_submit: boolean;
+  document_type: DocumentType;
+  issues: string[];
+  suggestions: string[];
+};
+
+type ImagePrecheckStatus = {
+  isChecking: boolean;
+  result?: ImagePrecheckResult;
+  error?: string;
+};
 
 const VIETNAM_PROVINCES = [
   'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cần Thơ', 'Cao Bằng', 'Đà Nẵng',
@@ -26,6 +44,7 @@ const TutorRegister: React.FC = () => {
     birthday: '',
     university: '',
     qualification: '',
+    bio: '',
     subjects_text: '',
     experience_years: '0',
     teaching_region: '',
@@ -40,6 +59,7 @@ const TutorRegister: React.FC = () => {
   const [degrees, setDegrees] = useState<File[]>([]);
   const [achievements, setAchievements] = useState<File[]>([]);
   const [teachingLevels, setTeachingLevels] = useState<string[]>([]);
+  const [prechecks, setPrechecks] = useState<Record<string, ImagePrecheckStatus>>({});
 
   const avatarRef = useRef<HTMLInputElement>(null);
   const idFrontRef = useRef<HTMLInputElement>(null);
@@ -47,9 +67,41 @@ const TutorRegister: React.FC = () => {
   const degreeRef = useRef<HTMLInputElement>(null);
   const achievementRef = useRef<HTMLInputElement>(null);
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = event.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const fileKey = (file: File) => `${file.name}-${file.size}-${file.lastModified}`;
+
+  const clearPrecheck = (key: string) => {
+    setPrechecks(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const precheckImage = async (key: string, file: File, documentType: DocumentType) => {
+    setPrechecks(prev => ({ ...prev, [key]: { isChecking: true } }));
+    const payload = new FormData();
+    payload.append('image', file);
+    payload.append('document_type', documentType);
+
+    try {
+      const res = await client.post('/ai/precheck-image/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setPrechecks(prev => ({ ...prev, [key]: { isChecking: false, result: res.data } }));
+    } catch (error: any) {
+      setPrechecks(prev => ({
+        ...prev,
+        [key]: {
+          isChecking: false,
+          error: error.response?.data?.error || 'Không kiểm tra được ảnh. Bạn có thể thử upload lại.',
+        },
+      }));
+    }
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: string) => {
@@ -60,11 +112,26 @@ const TutorRegister: React.FC = () => {
       return;
     }
 
-    if (type === 'avatar') setAvatar(selected[0]);
-    if (type === 'idFront') setIdFront(selected[0]);
-    if (type === 'idBack') setIdBack(selected[0]);
-    if (type === 'degree') setDegrees(prev => [...prev, ...selected]);
-    if (type === 'achievement') setAchievements(prev => [...prev, ...selected]);
+    if (type === 'avatar') {
+      setAvatar(selected[0]);
+      precheckImage('avatar', selected[0], 'portrait');
+    }
+    if (type === 'idFront') {
+      setIdFront(selected[0]);
+      precheckImage('idFront', selected[0], 'identity_card_front');
+    }
+    if (type === 'idBack') {
+      setIdBack(selected[0]);
+      precheckImage('idBack', selected[0], 'identity_card_back');
+    }
+    if (type === 'degree') {
+      setDegrees(prev => [...prev, ...selected]);
+      selected.forEach(file => precheckImage(fileKey(file), file, 'degree'));
+    }
+    if (type === 'achievement') {
+      setAchievements(prev => [...prev, ...selected]);
+      selected.forEach(file => precheckImage(fileKey(file), file, 'certificate'));
+    }
     event.target.value = '';
   };
 
@@ -73,12 +140,29 @@ const TutorRegister: React.FC = () => {
   };
 
   const removeDegree = (index: number) => {
+    const file = degrees[index];
+    if (file) clearPrecheck(fileKey(file));
     setDegrees(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const removeAchievement = (index: number) => {
+    const file = achievements[index];
+    if (file) clearPrecheck(fileKey(file));
     setAchievements(prev => prev.filter((_, idx) => idx !== index));
   };
+
+  const precheckKeysForSelectedFiles = [
+    ...(avatar ? ['avatar'] : []),
+    ...(idFront ? ['idFront'] : []),
+    ...(idBack ? ['idBack'] : []),
+    ...degrees.map(fileKey),
+    ...achievements.map(fileKey),
+  ];
+
+  const hasBlockingPrecheck = precheckKeysForSelectedFiles.some((key) => {
+    const status = prechecks[key];
+    return !status || status.isChecking || !!status.error || status.result?.is_valid !== true;
+  });
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -90,15 +174,27 @@ const TutorRegister: React.FC = () => {
       return;
     }
 
-    if (!idFront || !idBack || degrees.length === 0) {
-      setSubmitMessage('Vui lòng tải lên CCCD hai mặt và ít nhất một ảnh bằng cấp.');
-      showToast('Vui lòng tải lên CCCD hai mặt và ít nhất một ảnh bằng cấp.', 'error');
+    if (!avatar || !idFront || !idBack || degrees.length === 0) {
+      setSubmitMessage('Vui lòng tải lên ảnh chân dung, CCCD hai mặt và ít nhất một ảnh bằng cấp.');
+      showToast('Vui lòng tải lên ảnh chân dung, CCCD hai mặt và ít nhất một ảnh bằng cấp.', 'error');
       return;
     }
 
     if (teachingLevels.length === 0) {
       setSubmitMessage('Vui lòng chọn ít nhất một đối tượng giảng dạy.');
       showToast('Vui lòng chọn ít nhất một đối tượng giảng dạy.', 'error');
+      return;
+    }
+
+    if (hasBlockingPrecheck) {
+      setSubmitMessage('Vui lòng chờ AI precheck hoàn tất và chỉ submit khi tất cả ảnh đạt yêu cầu.');
+      showToast('Vui lòng chờ AI precheck hoàn tất và chỉ submit khi tất cả ảnh đạt yêu cầu.', 'error');
+      return;
+    }
+
+    if (formData.bio.length > BIO_MAX_LENGTH) {
+      setSubmitMessage(`Mô tả bản thân không được vượt quá ${BIO_MAX_LENGTH} ký tự.`);
+      showToast(`Mô tả bản thân không được vượt quá ${BIO_MAX_LENGTH} ký tự.`, 'error');
       return;
     }
 
@@ -179,12 +275,13 @@ const TutorRegister: React.FC = () => {
               </button>
               <div>
                 <p className="font-bold text-gray-900">Ảnh chân dung gia sư</p>
-                <p className="text-sm text-gray-500 mt-1">Không bắt buộc, nhưng nên thêm để hồ sơ trông đáng tin cậy hơn.</p>
+                <p className="text-sm text-gray-500 mt-1">Bắt buộc để AI precheck và AI review đối chiếu khuôn mặt với CCCD.</p>
                 {avatar && (
-                  <button type="button" onClick={() => setAvatar(null)} className="mt-3 text-sm font-bold text-rose-500 hover:underline">
+                  <button type="button" onClick={() => { setAvatar(null); clearPrecheck('avatar'); }} className="mt-3 text-sm font-bold text-rose-500 hover:underline">
                     Xóa ảnh chân dung
                   </button>
                 )}
+                <PrecheckMessage status={prechecks.avatar} />
               </div>
             </div>
 
@@ -211,6 +308,24 @@ const TutorRegister: React.FC = () => {
                   <option value="">Chọn tỉnh/thành</option>
                   {VIETNAM_PROVINCES.map(province => <option key={province} value={province}>{province}</option>)}
                 </select>
+              </label>
+              <label className="md:col-span-2">
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <span className="block text-xs font-semibold text-gray-500 uppercase">Mô tả bản thân</span>
+                  <span className={`text-xs font-semibold ${formData.bio.length > BIO_MAX_LENGTH ? 'text-rose-500' : 'text-gray-400'}`}>
+                    {formData.bio.length}/{BIO_MAX_LENGTH}
+                  </span>
+                </div>
+                <textarea
+                  name="bio"
+                  value={formData.bio}
+                  onChange={handleInputChange}
+                  maxLength={BIO_MAX_LENGTH}
+                  rows={5}
+                  placeholder="Giới thiệu ngắn gọn về phong cách dạy, kinh nghiệm, thế mạnh và đối tượng học sinh phù hợp."
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5a5ce6]/20 focus:border-[#5a5ce6] text-sm resize-none"
+                />
+                <span className="mt-1 block text-xs text-gray-400">Nội dung này sẽ hiển thị trong phần về bản thân của hồ sơ gia sư sau khi được duyệt.</span>
               </label>
               <label className="md:col-span-2">
                 <span className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Các môn dạy</span>
@@ -257,8 +372,14 @@ const TutorRegister: React.FC = () => {
               <div>
                 <SectionTitle index="1" title="Căn cước công dân" required />
                 <div className="grid grid-cols-2 gap-4">
-                  <UploadBox label="Mặt trước" file={idFront} inputRef={idFrontRef} onPick={(e) => handleFileChange(e, 'idFront')} onRemove={() => setIdFront(null)} />
-                  <UploadBox label="Mặt sau" file={idBack} inputRef={idBackRef} onPick={(e) => handleFileChange(e, 'idBack')} onRemove={() => setIdBack(null)} />
+                  <div>
+                    <UploadBox label="Mặt trước" file={idFront} inputRef={idFrontRef} onPick={(e) => handleFileChange(e, 'idFront')} onRemove={() => { setIdFront(null); clearPrecheck('idFront'); }} />
+                    <PrecheckMessage status={prechecks.idFront} />
+                  </div>
+                  <div>
+                    <UploadBox label="Mặt sau" file={idBack} inputRef={idBackRef} onPick={(e) => handleFileChange(e, 'idBack')} onRemove={() => { setIdBack(null); clearPrecheck('idBack'); }} />
+                    <PrecheckMessage status={prechecks.idBack} />
+                  </div>
                 </div>
               </div>
 
@@ -266,8 +387,11 @@ const TutorRegister: React.FC = () => {
                 <SectionTitle index="2" title="Bằng cấp chuyên môn" required helper="Có thể tải nhiều ảnh bằng cấp, chứng chỉ, bảng điểm." />
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {degrees.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="aspect-square">
+                    <div key={`${file.name}-${index}`}>
+                      <div className="aspect-square">
                       <FilePreview file={file} onRemove={() => removeDegree(index)} />
+                      </div>
+                      <PrecheckMessage status={prechecks[fileKey(file)]} compact />
                     </div>
                   ))}
                   <button type="button" onClick={() => degreeRef.current?.click()} className="aspect-square border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all">
@@ -282,8 +406,11 @@ const TutorRegister: React.FC = () => {
                 <SectionTitle index="3" title="Thành tích nổi bật" helper="Không bắt buộc, có thể tải nhiều ảnh giải thưởng hoặc chứng nhận." />
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {achievements.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="aspect-square">
+                    <div key={`${file.name}-${index}`}>
+                      <div className="aspect-square">
                       <FilePreview file={file} onRemove={() => removeAchievement(index)} />
+                      </div>
+                      <PrecheckMessage status={prechecks[fileKey(file)]} compact />
                     </div>
                   ))}
                   <button type="button" onClick={() => achievementRef.current?.click()} className="aspect-square border-2 border-dashed border-indigo-100 rounded-xl flex flex-col items-center justify-center text-center hover:bg-indigo-50/50 transition-all">
@@ -297,7 +424,7 @@ const TutorRegister: React.FC = () => {
 
             <div className="mt-10 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4 pt-6 border-t border-gray-100">
               {submitMessage && <p className="text-sm font-semibold text-slate-600">{submitMessage}</p>}
-              <button type="submit" disabled={isSubmitting} className="px-10 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-60">
+              <button type="submit" disabled={isSubmitting || hasBlockingPrecheck} className="px-10 py-3 rounded-xl bg-[#3b38c2] hover:bg-[#312e81] text-white text-base font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-60">
                 {isSubmitting ? 'Đang gửi...' : 'Hoàn tất đăng ký'}
               </button>
             </div>
@@ -345,6 +472,40 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
     </div>
   </div>
 );
+
+const PrecheckMessage = ({ status, compact = false }: { status?: ImagePrecheckStatus; compact?: boolean }) => {
+  if (!status) return null;
+  if (status.isChecking) {
+    return <p className={`${compact ? 'mt-2 text-[11px]' : 'mt-3 text-xs'} font-bold text-blue-600`}>Đang kiểm tra ảnh...</p>;
+  }
+  if (status.error) {
+    return <p className={`${compact ? 'mt-2 text-[11px]' : 'mt-3 text-xs'} font-bold text-amber-600`}>{status.error}</p>;
+  }
+  if (!status.result) return null;
+
+  const tone = status.result.is_valid
+    ? 'text-emerald-600'
+    : status.result.can_submit
+      ? 'text-amber-600'
+      : 'text-rose-600';
+  const label = status.result.is_valid
+    ? 'Ảnh đạt yêu cầu'
+    : status.result.can_submit
+      ? 'Ảnh có cảnh báo'
+      : 'Ảnh không đạt, vui lòng upload lại';
+
+  return (
+    <div className={`${compact ? 'mt-2 text-[11px]' : 'mt-3 text-xs'} font-semibold ${tone}`}>
+      <p className="font-extrabold">{label} ({status.result.score}/100)</p>
+      {status.result.issues.slice(0, compact ? 1 : 2).map((issue) => (
+        <p key={issue} className="mt-1 leading-snug">{issue}</p>
+      ))}
+      {!compact && status.result.suggestions.slice(0, 2).map((suggestion) => (
+        <p key={suggestion} className="mt-1 leading-snug text-gray-500">{suggestion}</p>
+      ))}
+    </div>
+  );
+};
 
 const SectionTitle = ({ index, title, required, helper }: any) => (
   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
