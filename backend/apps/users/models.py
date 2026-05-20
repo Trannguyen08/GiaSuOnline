@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser, UserManager
+from django.core.validators import MaxLengthValidator
 
 class CustomUserManager(UserManager):
     pass
@@ -24,6 +25,8 @@ class CustomUser(AbstractUser):
         return self.email
 
 class TutorProfile(models.Model):
+    MAX_BIO_LENGTH = 1000
+
     STATUS_CHOICES = (
         ('PENDING', 'Đang chờ duyệt'),
         ('APPROVED', 'Đã duyệt'),
@@ -35,6 +38,7 @@ class TutorProfile(models.Model):
     birthday = models.DateField(null=True, blank=True)
     university = models.CharField(max_length=255)
     qualification = models.CharField(max_length=100) # Sinh viên, Cử nhân, v.v.
+    bio = models.TextField(blank=True, max_length=MAX_BIO_LENGTH, validators=[MaxLengthValidator(MAX_BIO_LENGTH)])
     address = models.TextField()
     subjects_text = models.TextField(blank=True)
     experience_years = models.PositiveIntegerField(default=0)
