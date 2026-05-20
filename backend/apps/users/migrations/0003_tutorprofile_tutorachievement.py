@@ -39,7 +39,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "degree_image",
-                    models.ImageField(blank=True, null=True, upload_to="tutors/degrees/"),
+                    models.ImageField(
+                        blank=True, null=True, upload_to="tutors/degrees/"
+                    ),
                 ),
                 (
                     "status",

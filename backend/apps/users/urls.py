@@ -14,19 +14,16 @@ from .views import (
 
 urlpatterns = [
     # Standard auth
-    path('register/',       RegisterView.as_view(),    name='auth-register'),
-    path('register/tutor/', TutorRegisterView.as_view(), name='auth-register-tutor'),
-    path('verify-otp/',     VerifyOTPView.as_view(),   name='auth-verify-otp'),
-    path('resend-otp/',     ResendOTPView.as_view(),   name='auth-resend-otp'),
-    path('login/',          LoginView.as_view(),       name='auth-login'),
-    path('logout/',         LogoutView.as_view(),      name='auth-logout'),
-
+    path("register/", RegisterView.as_view(), name="auth-register"),
+    path("register/tutor/", TutorRegisterView.as_view(), name="auth-register-tutor"),
+    path("verify-otp/", VerifyOTPView.as_view(), name="auth-verify-otp"),
+    path("resend-otp/", ResendOTPView.as_view(), name="auth-resend-otp"),
+    path("login/", LoginView.as_view(), name="auth-login"),
+    path("logout/", LogoutView.as_view(), name="auth-logout"),
     # Google OAuth2
-    path('google/',         GoogleLoginView.as_view(), name='auth-google'),
-
+    path("google/", GoogleLoginView.as_view(), name="auth-google"),
     # JWT refresh
-    path('token/refresh/',  TokenRefreshView.as_view(), name='token-refresh'),
-
+    path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     # Current user
-    path('me/',             MeView.as_view(),          name='auth-me'),
+    path("me/", MeView.as_view(), name="auth-me"),
 ]

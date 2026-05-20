@@ -8,7 +8,6 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -34,8 +33,8 @@ def get_tokens_for_user(user):
     """Return JWT access + refresh tokens for a given user."""
     refresh = RefreshToken.for_user(user)
     return {
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
     }
 
 
@@ -48,6 +47,7 @@ class RegisterView(APIView):
     Body: { username, email, password, password_confirm, phone? }
     Creates an *inactive* account and sends a 6-digit OTP to the email.
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -55,15 +55,15 @@ class RegisterView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        if User.objects.filter(email=serializer.validated_data['email']).exists():
+        if User.objects.filter(email=serializer.validated_data["email"]).exists():
             return Response(
-                {'email': 'Email này đã được đăng ký.'},
+                {"email": "Email này đã được đăng ký."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         with transaction.atomic():
             user = serializer.save()
-            user.is_active = False   # stays inactive until OTP verified
+            user.is_active = False  # stays inactive until OTP verified
             user.save()
 
         # Fire OTP email via Celery (non-blocking)
@@ -71,8 +71,8 @@ class RegisterView(APIView):
 
         return Response(
             {
-                'message': 'Đăng ký thành công. Vui lòng kiểm tra email để lấy mã OTP.',
-                'email': user.email,
+                "message": "Đăng ký thành công. Vui lòng kiểm tra email để lấy mã OTP.",
+                "email": user.email,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -87,6 +87,7 @@ class VerifyOTPView(APIView):
     Body: { email, code }
     Marks OTP as used, activates user, returns JWT.
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -94,24 +95,24 @@ class VerifyOTPView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        email = serializer.validated_data['email']
-        code  = serializer.validated_data['code']
+        email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
 
         otp = (
             OTP.objects.filter(email=email, code=code, is_used=False)
-            .order_by('-created_at')
+            .order_by("-created_at")
             .first()
         )
 
         if not otp:
             return Response(
-                {'error': 'Mã OTP không hợp lệ.'},
+                {"error": "Mã OTP không hợp lệ."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if otp.expires_at < timezone.now():
             return Response(
-                {'error': 'Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.'},
+                {"error": "Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -121,17 +122,20 @@ class VerifyOTPView(APIView):
 
             user = User.objects.filter(email=email).first()
             if not user:
-                return Response({'error': 'Tài khoản không tồn tại.'}, status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {"error": "Tài khoản không tồn tại."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-            user.is_active   = True
+            user.is_active = True
             user.is_verified = True
             user.save()
 
         tokens = get_tokens_for_user(user)
         return Response(
             {
-                'message': 'Xác thực thành công.',
-                'user': UserSerializer(user).data,
+                "message": "Xác thực thành công.",
+                "user": UserSerializer(user).data,
                 **tokens,
             },
             status=status.HTTP_200_OK,
@@ -146,23 +150,26 @@ class ResendOTPView(APIView):
     POST /api/auth/resend-otp/
     Body: { email }
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email')
+        email = request.data.get("email")
         if not email:
-            return Response({'error': 'Email là bắt buộc.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Email là bắt buộc."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not User.objects.filter(email=email).exists():
-            return Response({'error': 'Tài khoản không tồn tại.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Tài khoản không tồn tại."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         send_otp_email.delay(email)
-        return Response({'message': 'Mã OTP mới đã được gửi.'}, status=status.HTTP_200_OK)
+        return Response(
+            {"message": "Mã OTP mới đã được gửi."}, status=status.HTTP_200_OK
+        )
 
-
-from .models import OTP
-
-# ... (previous code)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tutor Register → Uploads docs to S3
@@ -172,22 +179,29 @@ class TutorRegisterView(APIView):
     POST /api/auth/register/tutor/
     Body: multipart/form-data
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
         try:
             profile = register_tutor(request.data, request.FILES)
 
-            return Response({
-                'message': 'Đăng ký hồ sơ gia sư thành công! Hồ sơ của bạn đang chờ quản trị viên phê duyệt.',
-                'email': profile.user.email
-            }, status=status.HTTP_201_CREATED)
+            return Response(
+                {
+                    "message": "Đăng ký hồ sơ gia sư thành công! Hồ sơ của bạn đang chờ quản trị viên phê duyệt.",
+                    "email": profile.user.email,
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Error during tutor registration: {str(e)}")
-            return Response({'error': f'Có lỗi xảy ra: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": f"Có lỗi xảy ra: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -198,6 +212,7 @@ class LoginView(APIView):
     POST /api/auth/login/
     Body: { email, password }
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -205,37 +220,39 @@ class LoginView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        email    = serializer.validated_data['email']
-        password = serializer.validated_data['password']
+        email = serializer.validated_data["email"]
+        password = serializer.validated_data["password"]
 
         user = User.objects.filter(email=email).first()
 
         if not user or not user.check_password(password):
             return Response(
-                {'error': 'Email hoặc mật khẩu không chính xác.'},
+                {"error": "Email hoặc mật khẩu không chính xác."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not user.is_active:
             return Response(
-                {'error': 'Tài khoản chưa được kích hoạt.'},
+                {"error": "Tài khoản chưa được kích hoạt."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         # CHECK TUTOR APPROVAL
         if user.is_tutor:
-            profile = getattr(user, 'tutor_profile', None)
-            if not profile or profile.status != 'APPROVED':
+            profile = getattr(user, "tutor_profile", None)
+            if not profile or profile.status != "APPROVED":
                 return Response(
-                    {'error': 'Tài khoản gia sư của bạn đang chờ phê duyệt hoặc đã bị từ chối. Bạn không thể đăng nhập lúc này.'},
+                    {
+                        "error": "Tài khoản gia sư của bạn đang chờ phê duyệt hoặc đã bị từ chối. Bạn không thể đăng nhập lúc này."
+                    },
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
         tokens = get_tokens_for_user(user)
         return Response(
             {
-                'message': 'Đăng nhập thành công.',
-                'user': UserSerializer(user).data,
+                "message": "Đăng nhập thành công.",
+                "user": UserSerializer(user).data,
                 **tokens,
             },
             status=status.HTTP_200_OK,
@@ -255,6 +272,7 @@ class GoogleLoginView(APIView):
       2. Sends that token here
       3. Backend verifies with Google, get/create user, return JWT
     """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -262,10 +280,10 @@ class GoogleLoginView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        token = serializer.validated_data['id_token']
+        token = serializer.validated_data["id_token"]
 
         try:
-            google_client_id = config('GOOGLE_CLIENT_ID')
+            google_client_id = config("GOOGLE_CLIENT_ID")
             id_info = google_id_token.verify_oauth2_token(
                 token,
                 google_requests.Request(),
@@ -274,16 +292,19 @@ class GoogleLoginView(APIView):
         except ValueError as exc:
             logger.warning("Google id_token verification failed: %s", exc)
             return Response(
-                {'error': 'Token Google không hợp lệ.'},
+                {"error": "Token Google không hợp lệ."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        google_id = id_info.get('sub')
-        email     = id_info.get('email')
-        name      = id_info.get('name', '')
+        google_id = id_info.get("sub")
+        email = id_info.get("email")
+        name = id_info.get("name", "")
 
         if not email:
-            return Response({'error': 'Không lấy được email từ Google.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Không lấy được email từ Google."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         with transaction.atomic():
             # Try to find by google_id first, then by email
@@ -295,10 +316,10 @@ class GoogleLoginView(APIView):
                 # Link google_id if not already linked
                 if not user.google_id:
                     user.google_id = google_id
-                    user.save(update_fields=['google_id'])
+                    user.save(update_fields=["google_id"])
             else:
                 # Create new user
-                username = email.split('@')[0]
+                username = email.split("@")[0]
                 # Ensure username is unique
                 base_username = username
                 counter = 1
@@ -309,23 +330,23 @@ class GoogleLoginView(APIView):
                 user = User.objects.create_user(
                     username=username,
                     email=email,
-                    password=None,          # no password for OAuth users
+                    password=None,  # no password for OAuth users
                     google_id=google_id,
                     is_active=True,
                     is_verified=True,
                 )
                 # Set display name from Google profile
                 if name:
-                    parts = name.split(' ', 1)
+                    parts = name.split(" ", 1)
                     user.first_name = parts[0]
-                    user.last_name  = parts[1] if len(parts) > 1 else ''
-                    user.save(update_fields=['first_name', 'last_name'])
+                    user.last_name = parts[1] if len(parts) > 1 else ""
+                    user.save(update_fields=["first_name", "last_name"])
 
         tokens = get_tokens_for_user(user)
         return Response(
             {
-                'message': 'Đăng nhập Google thành công.',
-                'user': UserSerializer(user).data,
+                "message": "Đăng nhập Google thành công.",
+                "user": UserSerializer(user).data,
                 **tokens,
             },
             status=status.HTTP_200_OK,
@@ -341,20 +362,27 @@ class LogoutView(APIView):
     Body: { refresh: "<refresh_token>" }
     Blacklists the refresh token.
     """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh_token = request.data.get('refresh')
+        refresh_token = request.data.get("refresh")
         if not refresh_token:
-            return Response({'error': 'Refresh token là bắt buộc.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Refresh token là bắt buộc."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             token = RefreshToken(refresh_token)
             token.blacklist()
         except Exception:
-            return Response({'error': 'Token không hợp lệ hoặc đã hết hạn.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Token không hợp lệ hoặc đã hết hạn."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response({'message': 'Đăng xuất thành công.'}, status=status.HTTP_200_OK)
+        return Response({"message": "Đăng xuất thành công."}, status=status.HTTP_200_OK)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -365,6 +393,7 @@ class MeView(APIView):
     GET  /api/auth/me/   → return current user info
     PATCH /api/auth/me/  → update profile fields
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
