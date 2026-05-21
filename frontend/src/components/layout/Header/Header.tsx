@@ -53,6 +53,17 @@ const Header: React.FC = () => {
               }`}></span>
             </Link>
           ))}
+          <Link
+            to="/registration-history"
+            className={`text-[14px] font-bold transition-all relative group ${
+              location.pathname === '/registration-history' ? 'text-[#5a5ce6]' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            Lịch sử đăng ký
+            <span className={`absolute -bottom-1 left-0 h-0.5 bg-[#5a5ce6] transition-all duration-300 rounded-sm ${
+              location.pathname === '/registration-history' ? 'w-full' : 'w-0 group-hover:w-full'
+            }`}></span>
+          </Link>
         </nav>
 
         {/* Auth / User Section */}

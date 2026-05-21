@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Search, X } from 'lucide-react';
+import { CreditCard, Eye, Search, ShieldAlert, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { adminApi } from '../../api/admin';
 import { useAdminStore } from '../../store/useAdminStore';
 import { formatDate } from '../../utils/format';
 import { useToast } from '../../components/ui/Toast';
@@ -51,6 +52,9 @@ const DetailRow = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
+const formatMoney = (value: string | number | undefined) =>
+  `${Number(value || 0).toLocaleString('vi-VN')}đ`;
+
 const TutorProfileModal = ({
   tutor,
   mode,
@@ -58,6 +62,7 @@ const TutorProfileModal = ({
   onApprove,
   onReject,
   onLock,
+  onDeductCommission,
 }: {
   tutor: any;
   mode: 'approval' | 'management';
@@ -65,6 +70,7 @@ const TutorProfileModal = ({
   onApprove: () => void;
   onReject: () => void;
   onLock: () => void;
+  onDeductCommission: () => void;
 }) => {
   const identityDocuments = [
     ['CCCD mặt trước', tutor.id_front_url],
@@ -151,6 +157,42 @@ const TutorProfileModal = ({
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="space-y-6">
+                {mode === 'management' && (
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-3 flex items-center gap-2 text-amber-700">
+                          <ShieldAlert className="h-5 w-5" />
+                          <h4 className="text-sm font-extrabold uppercase tracking-widest">Bảo chứng & phí</h4>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl bg-white/80 p-3">
+                            <p className="text-xs font-bold text-slate-400">Cọc bảo chứng</p>
+                            <p className="mt-1 text-lg font-black text-slate-900">{formatMoney(tutor.guarantee_deposit_balance)}</p>
+                          </div>
+                          <div className="rounded-xl bg-white/80 p-3">
+                            <p className="text-xs font-bold text-slate-400">Nợ commission</p>
+                            <p className="mt-1 text-lg font-black text-amber-700">{formatMoney(tutor.commission_debt)}</p>
+                          </div>
+                        </div>
+                        {tutor.new_class_locked && (
+                          <p className="mt-3 text-xs font-bold text-rose-600">
+                            Đang khóa nhận lớp mới: {tutor.new_class_lock_reason || 'low_deposit'}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={onDeductCommission}
+                        disabled={!tutor.teaching_profile_id || Number(tutor.commission_debt || 0) <= 0}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        Trừ cọc
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Mô tả bản thân</h4>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-700">
@@ -291,6 +333,27 @@ const TutorManagement: React.FC<TutorManagementProps> = ({ mode = 'management' }
     }
   };
 
+  const deductCommissionFromDeposit = async (tutor: any) => {
+    if (!tutor.teaching_profile_id) {
+      showToast('Gia sư chưa có hồ sơ giảng dạy để xử lý cọc.', 'error');
+      return;
+    }
+    if (Number(tutor.commission_debt || 0) <= 0) {
+      showToast('Gia sư không còn nợ commission.', 'info');
+      return;
+    }
+    try {
+      await adminApi.deductTutorCommission(tutor.teaching_profile_id, {
+        note: 'Admin deducted overdue commission from guarantee deposit',
+      });
+      showToast('Đã trừ đúng số nợ commission vào cọc bảo chứng.', 'success');
+      setSelectedTutor(null);
+      await fetchTutors(mode === 'approval' ? { status: 'PENDING' } : undefined);
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Không thể trừ cọc lúc này.', 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -405,6 +468,7 @@ const TutorManagement: React.FC<TutorManagementProps> = ({ mode = 'management' }
             onApprove={() => handleTutorAction(selectedTutor.id, 'approve')}
             onReject={() => handleTutorAction(selectedTutor.id, 'reject')}
             onLock={() => setIsLockModalOpen(true)}
+            onDeductCommission={() => deductCommissionFromDeposit(selectedTutor)}
           />
         )}
       </AnimatePresence>

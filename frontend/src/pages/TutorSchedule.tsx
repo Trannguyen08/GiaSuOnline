@@ -113,7 +113,7 @@ const TutorSchedule: React.FC = () => {
       setIsFormOpen(false);
       await fetchSlots();
     } catch (error: any) {
-      showToast(error.response?.data?.detail || 'Tạo lịch thất bại.', 'error');
+      showToast(error.response?.data?.error || error.response?.data?.detail || 'Tạo lịch thất bại.', 'error');
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,9 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from .models import (
     TutorProfile,
+    TutorGuaranteeTransaction,
     Subject,
     TutorSubject,
     TutorEducation,
@@ -132,6 +135,10 @@ class TutorProfileSerializer(serializers.ModelSerializer):
             "rating_avg",
             "total_reviews",
             "is_available",
+            "guarantee_deposit_balance",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
             "location",
             "teaching_mode",
             "documents",
@@ -147,6 +154,10 @@ class TutorProfileSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "rating_avg",
             "total_reviews",
+            "guarantee_deposit_balance",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
             "achievements",
             "degree_images",
             "degree_image_url",
@@ -265,3 +276,61 @@ class TutorProfileSerializer(serializers.ModelSerializer):
                 TutorDocument.objects.create(tutor=instance, **item)
 
         return instance
+
+
+class TutorGuaranteeTransactionSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source="course.title", read_only=True)
+
+    class Meta:
+        model = TutorGuaranteeTransaction
+        fields = [
+            "id",
+            "transaction_type",
+            "amount",
+            "balance_after",
+            "debt_after",
+            "course",
+            "course_title",
+            "note",
+            "created_at",
+        ]
+
+
+class TutorGuaranteeStatusSerializer(serializers.ModelSerializer):
+    required_deposit = serializers.SerializerMethodField()
+    can_receive_new_classes = serializers.SerializerMethodField()
+    recent_transactions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TutorProfile
+        fields = [
+            "id",
+            "guarantee_deposit_balance",
+            "required_deposit",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
+            "can_receive_new_classes",
+            "recent_transactions",
+        ]
+
+    def get_required_deposit(self, obj):
+        from .services.guarantee import get_required_deposit
+
+        return get_required_deposit()
+
+    def get_can_receive_new_classes(self, obj):
+        from .services.guarantee import can_receive_new_classes
+
+        return can_receive_new_classes(obj)
+
+    def get_recent_transactions(self, obj):
+        transactions = obj.guarantee_transactions.select_related("course").all()[:20]
+        return TutorGuaranteeTransactionSerializer(transactions, many=True).data
+
+
+class MoneyAmountSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+    note = serializers.CharField(required=False, allow_blank=True)

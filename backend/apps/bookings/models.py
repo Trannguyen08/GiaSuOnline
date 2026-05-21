@@ -6,9 +6,17 @@ from apps.tutors.models import TutorProfile, Subject
 class Booking(models.Model):
     STATUS_CHOICES = [
         ("pending", "Pending"),
+        ("approved", "Approved"),
         ("confirmed", "Confirmed"),
         ("cancelled", "Cancelled"),
         ("completed", "Completed"),
+    ]
+    PAYMENT_STATUS_CHOICES = [
+        ("unpaid", "Unpaid"),
+        ("pending", "Pending"),
+        ("paid", "Paid"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
     ]
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -23,6 +31,14 @@ class Booking(models.Model):
     end_time = models.DateTimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment_status = models.CharField(
+        max_length=20, choices=PAYMENT_STATUS_CHOICES, default="unpaid"
+    )
+    payos_order_code = models.BigIntegerField(null=True, blank=True, unique=True)
+    payos_payment_link_id = models.CharField(max_length=100, blank=True)
+    payment_checkout_url = models.URLField(max_length=1000, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
     teaching_slot = models.OneToOneField(
         "TeachingSlot",

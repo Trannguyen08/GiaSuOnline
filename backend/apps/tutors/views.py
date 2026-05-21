@@ -8,7 +8,19 @@ import json
 from urllib import request as urlrequest
 from urllib.error import URLError, HTTPError
 from .models import TutorProfile, Subject
-from .serializers import TutorProfileSerializer, SubjectSerializer
+from .serializers import (
+    MoneyAmountSerializer,
+    TutorGuaranteeStatusSerializer,
+    TutorProfileSerializer,
+    SubjectSerializer,
+)
+from .services.guarantee import (
+    deduct_commission_debt_from_deposit,
+    get_required_deposit,
+    pay_commission_debt,
+    refresh_new_class_lock,
+    top_up_deposit,
+)
 from apps.courses.models import CourseReview
 from apps.courses.serializers import CourseReviewSerializer
 
@@ -43,6 +55,80 @@ class TutorSettingsView(APIView):
             )
 
 
+class TutorGuaranteeStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = request.user.teaching_profile
+        except TutorProfile.DoesNotExist:
+            return Response(
+                {"error": "Tutor profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        refresh_new_class_lock(profile)
+        return Response(TutorGuaranteeStatusSerializer(profile).data)
+
+
+class TutorGuaranteeDepositView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = MoneyAmountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            profile = request.user.teaching_profile
+        except TutorProfile.DoesNotExist:
+            return Response(
+                {"error": "Tutor profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        profile = top_up_deposit(
+            profile.id,
+            serializer.validated_data["amount"],
+            note=serializer.validated_data.get("note", ""),
+        )
+        return Response(TutorGuaranteeStatusSerializer(profile).data)
+
+
+class TutorCommissionPaymentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = MoneyAmountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            profile = request.user.teaching_profile
+        except TutorProfile.DoesNotExist:
+            return Response(
+                {"error": "Tutor profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        profile = pay_commission_debt(
+            profile.id,
+            serializer.validated_data["amount"],
+            note=serializer.validated_data.get("note", ""),
+        )
+        return Response(TutorGuaranteeStatusSerializer(profile).data)
+
+
+class AdminTutorCommissionDeductView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            TutorProfile.objects.get(pk=pk)
+        except TutorProfile.DoesNotExist:
+            return Response(
+                {"error": "Tutor profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        profile = deduct_commission_debt_from_deposit(
+            pk, note=request.data.get("note", "")
+        )
+        return Response(TutorGuaranteeStatusSerializer(profile).data)
+
+
 class SubjectListView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -57,7 +143,11 @@ class TutorPublicListView(APIView):
 
     def get(self, request):
         queryset = (
-            TutorProfile.objects.filter(is_available=True)
+            TutorProfile.objects.filter(
+                is_available=True,
+                new_class_locked=False,
+                guarantee_deposit_balance__gte=get_required_deposit(),
+            )
             .select_related("user", "user__tutor_profile")
             .prefetch_related("tutor_subjects__subject", "educations", "certifications")
         )
@@ -190,6 +280,12 @@ class TutorPublicDetailView(APIView):
                 )
                 .get(pk=pk, is_available=True)
             )
+            refresh_new_class_lock(profile)
+            if (
+                profile.new_class_locked
+                or profile.guarantee_deposit_balance < get_required_deposit()
+            ):
+                raise TutorProfile.DoesNotExist
             serializer = TutorProfileSerializer(profile, context={"request": request})
             return Response(serializer.data)
         except TutorProfile.DoesNotExist:
@@ -258,7 +354,11 @@ class TutorQuickSearchView(APIView):
 
     def query_tutors(self, criteria):
         queryset = (
-            TutorProfile.objects.filter(is_available=True)
+            TutorProfile.objects.filter(
+                is_available=True,
+                new_class_locked=False,
+                guarantee_deposit_balance__gte=get_required_deposit(),
+            )
             .select_related("user", "user__tutor_profile")
             .prefetch_related("tutor_subjects__subject", "educations", "certifications")
         )
