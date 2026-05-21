@@ -8,6 +8,7 @@ class BookingSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
     slot_id = serializers.IntegerField(source="teaching_slot_id", read_only=True)
+    deposit_due = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Booking
@@ -22,13 +23,36 @@ class BookingSerializer(serializers.ModelSerializer):
             "end_time",
             "status",
             "total_price",
+            "deposit_amount",
+            "payment_status",
+            "payos_order_code",
+            "payment_checkout_url",
+            "paid_at",
             "notes",
             "teaching_slot",
             "slot_id",
             "tutor_name",
+            "deposit_due",
             "created_at",
         ]
-        read_only_fields = ["student", "status", "created_at"]
+        read_only_fields = [
+            "student",
+            "status",
+            "deposit_amount",
+            "payment_status",
+            "payos_order_code",
+            "payment_checkout_url",
+            "paid_at",
+            "deposit_due",
+            "created_at",
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["deposit_due"] = (
+            instance.status == "approved" and instance.payment_status != "paid"
+        )
+        return data
 
 
 class TutorAvailabilitySerializer(serializers.ModelSerializer):

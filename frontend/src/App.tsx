@@ -23,6 +23,8 @@ import StudyRooms from './pages/StudyRooms';
 // Course Pages
 import MyCourses from './pages/MyCourses';
 import CourseDetail from './pages/CourseDetail';
+import RegistrationHistory from './pages/RegistrationHistory';
+import PaymentSuccess from './pages/PaymentSuccess';
 import { TutorCourseList, TutorCourseDetail } from './pages/TutorCourseManagement';
 
 // Admin Pages
@@ -53,6 +55,8 @@ function App() {
               {/* Student Course Pages */}
               <Route path="/my-courses" element={<MyCourses />} />
               <Route path="/my-courses/:id" element={<CourseDetail />} />
+              <Route path="/registration-history" element={<RegistrationHistory />} />
+              <Route path="/payment/success" element={<PaymentSuccess />} />
               <Route path="/study-rooms" element={<StudyRooms />} />
             </Route>
 

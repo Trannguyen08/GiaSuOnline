@@ -41,6 +41,7 @@ from core.s3_uploads import (
     validate_material_upload,
     s3_client,
 )
+from apps.tutors.services.guarantee import accrue_course_commission
 
 User = get_user_model()
 
@@ -169,6 +170,14 @@ class StudentSessionCompleteView(APIView):
             )
 
         session.mark_completed()
+        course = session.course
+        if (
+            course.sessions.filter(student_completed=False).count() == 0
+            and course.status != "completed"
+        ):
+            course.status = "completed"
+            course.save(update_fields=["status", "updated_at"])
+            accrue_course_commission(course)
         return Response(
             {
                 "message": "Đã đánh dấu hoàn thành buổi học!",

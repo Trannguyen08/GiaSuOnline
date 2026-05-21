@@ -111,6 +111,11 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     degree_image_url = serializers.SerializerMethodField()
     degree_images = AdminTutorDegreeImageSerializer(many=True, read_only=True)
     achievements = AdminTutorAchievementSerializer(many=True, read_only=True)
+    teaching_profile_id = serializers.SerializerMethodField()
+    guarantee_deposit_balance = serializers.SerializerMethodField()
+    commission_debt = serializers.SerializerMethodField()
+    new_class_locked = serializers.SerializerMethodField()
+    new_class_lock_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = UserTutorProfile
@@ -136,6 +141,11 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
             "status",
             "registration_status",
             "subjects",
+            "teaching_profile_id",
+            "guarantee_deposit_balance",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
             "created_at",
         ]
 
@@ -172,3 +182,26 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
             if teaching_profile
             else obj.experience_years
         )
+
+    def _teaching_profile(self, obj):
+        return getattr(obj.user, "teaching_profile", None)
+
+    def get_teaching_profile_id(self, obj):
+        teaching_profile = self._teaching_profile(obj)
+        return teaching_profile.id if teaching_profile else None
+
+    def get_guarantee_deposit_balance(self, obj):
+        teaching_profile = self._teaching_profile(obj)
+        return teaching_profile.guarantee_deposit_balance if teaching_profile else 0
+
+    def get_commission_debt(self, obj):
+        teaching_profile = self._teaching_profile(obj)
+        return teaching_profile.commission_debt if teaching_profile else 0
+
+    def get_new_class_locked(self, obj):
+        teaching_profile = self._teaching_profile(obj)
+        return teaching_profile.new_class_locked if teaching_profile else False
+
+    def get_new_class_lock_reason(self, obj):
+        teaching_profile = self._teaching_profile(obj)
+        return teaching_profile.new_class_lock_reason if teaching_profile else ""

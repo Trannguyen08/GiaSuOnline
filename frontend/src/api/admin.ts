@@ -7,6 +7,8 @@ export const adminApi = {
   // Tutors
   getTutors: (params?: any) => client.get('/admin/tutors/', { params }).then(res => res.data),
   tutorAction: (id: number, action: string, data?: any) => client.post(`/admin/tutors/${id}/action/`, { action, ...data }).then(res => res.data),
+  deductTutorCommission: (teachingProfileId: number, data?: any) =>
+    client.post(`/tutors/admin/${teachingProfileId}/commission/deduct/`, data || {}).then(res => res.data),
 
   // Users
   getUsers: (params?: any) => client.get('/admin/users/', { params }).then(res => res.data),

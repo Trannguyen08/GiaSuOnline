@@ -69,6 +69,46 @@ class Course(models.Model):
         )
 
 
+class CourseCommission(models.Model):
+    STATUS_CHOICES = [
+        ("due", "Due"),
+        ("paid", "Paid"),
+        ("deducted", "Deducted"),
+        ("partial", "Partial"),
+        ("waived", "Waived"),
+    ]
+
+    course = models.OneToOneField(
+        Course, on_delete=models.CASCADE, related_name="commission"
+    )
+    tutor = models.ForeignKey(
+        TutorProfile, on_delete=models.CASCADE, related_name="course_commissions"
+    )
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=4)
+    commission_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    deducted_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="due")
+    due_at = models.DateTimeField()
+    settled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def outstanding_amount(self):
+        return max(
+            self.commission_amount - self.paid_amount - self.deducted_amount,
+            0 * self.commission_amount,
+        )
+
+    def __str__(self):
+        return f"Commission for course {self.course_id}: {self.commission_amount}"
+
+
 class CourseSession(models.Model):
     """Buổi học trong một khóa học"""
 

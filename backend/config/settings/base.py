@@ -102,6 +102,12 @@ CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=REDIS_URL)
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_URL)
 CELERY_TIMEZONE = "UTC"
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_TASK_DEFAULT_QUEUE = "celery"
+CELERY_TASK_ROUTES = {
+    "apps.bookings.tasks.process_booking_payment_verification": {
+        "queue": "payments",
+    },
+}
 
 CHANNEL_LAYERS = {
     "default": {
@@ -196,6 +202,19 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="webmaster@localhost")
+
+FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:5173")
+PAYOS_CLIENT_ID = config("PAYOS_CLIENT_ID", default="")
+PAYOS_API_KEY = config("PAYOS_API_KEY", default="")
+PAYOS_CHECKSUM_KEY = config("PAYOS_CHECKSUM_KEY", default="")
+PAYOS_API_BASE_URL = config(
+    "PAYOS_API_BASE_URL", default="https://api-merchant.payos.vn"
+)
+TUTOR_GUARANTEE_REQUIRED_AMOUNT = config(
+    "TUTOR_GUARANTEE_REQUIRED_AMOUNT", default="200000.00"
+)
+TUTOR_COMMISSION_RATE = config("TUTOR_COMMISSION_RATE", default="0.10")
+TUTOR_COMMISSION_DUE_DAYS = config("TUTOR_COMMISSION_DUE_DAYS", default=7, cast=int)
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",

@@ -33,6 +33,12 @@ class TutorProfile(models.Model):
     rating_avg = models.DecimalField(max_digits=3, decimal_places=2, default=0.0)
     total_reviews = models.PositiveIntegerField(default=0)
     is_available = models.BooleanField(default=True)
+    guarantee_deposit_balance = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0
+    )
+    commission_debt = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    new_class_locked = models.BooleanField(default=False)
+    new_class_lock_reason = models.CharField(max_length=255, blank=True)
     location = models.CharField(max_length=255, blank=True)
     teaching_mode = models.CharField(
         max_length=20, choices=TEACHING_MODES, default="online"
@@ -40,6 +46,38 @@ class TutorProfile(models.Model):
 
     def __str__(self):
         return f"TutorProfile for {self.user.username}"
+
+
+class TutorGuaranteeTransaction(models.Model):
+    TYPE_CHOICES = [
+        ("deposit_topup", "Deposit top-up"),
+        ("commission_accrual", "Commission accrual"),
+        ("commission_payment", "Commission payment"),
+        ("deposit_deduction", "Deposit deduction"),
+    ]
+
+    tutor = models.ForeignKey(
+        TutorProfile, on_delete=models.CASCADE, related_name="guarantee_transactions"
+    )
+    course = models.ForeignKey(
+        "courses.Course",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="guarantee_transactions",
+    )
+    transaction_type = models.CharField(max_length=30, choices=TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2)
+    debt_after = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.tutor_id} {self.transaction_type} {self.amount}"
 
 
 class TutorSubject(models.Model):
