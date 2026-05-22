@@ -7,6 +7,7 @@ class BookingSerializer(serializers.ModelSerializer):
     student_details = UserSerializer(source="student", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
     slot_id = serializers.IntegerField(source="teaching_slot_id", read_only=True)
     deposit_due = serializers.BooleanField(read_only=True)
 
@@ -32,6 +33,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "teaching_slot",
             "slot_id",
             "tutor_name",
+            "tutor_email",
             "deposit_due",
             "created_at",
         ]

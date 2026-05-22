@@ -5,7 +5,14 @@ from apps.users.models import (
     TutorAchievement,
     TutorDegreeImage,
 )
-from apps.tutors.models import TutorProfile as TeachingProfile, TutorSubject
+from apps.tutors.models import (
+    TutorGuaranteeTransaction,
+    TutorProfile as TeachingProfile,
+    TutorSubject,
+)
+from apps.bookings.models import Booking, TeachingSlot
+from apps.courses.models import Course, CourseCommission, CourseReview
+from .models import SystemSetting, ViolationCase
 
 User = get_user_model()
 
@@ -205,3 +212,305 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     def get_new_class_lock_reason(self, obj):
         teaching_profile = self._teaching_profile(obj)
         return teaching_profile.new_class_lock_reason if teaching_profile else ""
+
+
+class AdminCourseSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source="student.email", read_only=True)
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    completed_sessions = serializers.IntegerField(
+        source="completed_sessions_count", read_only=True
+    )
+    commission_status = serializers.SerializerMethodField()
+    commission_amount = serializers.SerializerMethodField()
+    commission_outstanding = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = [
+            "id",
+            "title",
+            "description",
+            "student",
+            "student_name",
+            "student_email",
+            "tutor",
+            "tutor_name",
+            "tutor_email",
+            "subject",
+            "subject_name",
+            "total_sessions",
+            "completed_sessions",
+            "session_duration_minutes",
+            "schedule_time",
+            "start_date",
+            "end_date",
+            "hourly_rate",
+            "status",
+            "commission_status",
+            "commission_amount",
+            "commission_outstanding",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username or obj.student.email
+
+    def _commission(self, obj):
+        return getattr(obj, "commission", None)
+
+    def get_commission_status(self, obj):
+        commission = self._commission(obj)
+        return commission.status if commission else None
+
+    def get_commission_amount(self, obj):
+        commission = self._commission(obj)
+        return commission.commission_amount if commission else 0
+
+    def get_commission_outstanding(self, obj):
+        commission = self._commission(obj)
+        return commission.outstanding_amount if commission else 0
+
+
+class AdminCourseCommissionSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source="course.title", read_only=True)
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    outstanding_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = CourseCommission
+        fields = [
+            "id",
+            "course",
+            "course_title",
+            "tutor",
+            "tutor_name",
+            "gross_amount",
+            "commission_rate",
+            "commission_amount",
+            "paid_amount",
+            "deducted_amount",
+            "outstanding_amount",
+            "status",
+            "due_at",
+            "settled_at",
+            "created_at",
+        ]
+
+
+class AdminFinanceTutorSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    required_deposit = serializers.SerializerMethodField()
+    active_courses = serializers.IntegerField(read_only=True)
+    due_commissions = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = TeachingProfile
+        fields = [
+            "id",
+            "full_name",
+            "email",
+            "guarantee_deposit_balance",
+            "required_deposit",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
+            "active_courses",
+            "due_commissions",
+        ]
+
+    def get_required_deposit(self, obj):
+        from apps.tutors.services.guarantee import get_required_deposit
+
+        return get_required_deposit()
+
+
+class AdminGuaranteeTransactionSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    course_title = serializers.CharField(source="course.title", read_only=True)
+
+    class Meta:
+        model = TutorGuaranteeTransaction
+        fields = [
+            "id",
+            "tutor",
+            "tutor_name",
+            "course",
+            "course_title",
+            "transaction_type",
+            "amount",
+            "balance_after",
+            "debt_after",
+            "note",
+            "created_at",
+        ]
+
+
+class AdminBookingSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source="student.email", read_only=True)
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    slot_status = serializers.CharField(source="teaching_slot.status", read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "student",
+            "student_name",
+            "student_email",
+            "tutor",
+            "tutor_name",
+            "tutor_email",
+            "subject",
+            "subject_name",
+            "start_time",
+            "end_time",
+            "status",
+            "total_price",
+            "deposit_amount",
+            "payment_status",
+            "payos_order_code",
+            "payos_payment_link_id",
+            "payment_checkout_url",
+            "paid_at",
+            "notes",
+            "teaching_slot",
+            "slot_status",
+            "created_at",
+        ]
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username or obj.student.email
+
+
+class AdminTeachingSlotSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    booking_id = serializers.IntegerField(source="booking.id", read_only=True)
+    booking_status = serializers.CharField(source="booking.status", read_only=True)
+    payment_status = serializers.CharField(source="booking.payment_status", read_only=True)
+
+    class Meta:
+        model = TeachingSlot
+        fields = [
+            "id",
+            "tutor",
+            "tutor_name",
+            "tutor_email",
+            "subject",
+            "subject_name",
+            "start_time",
+            "end_time",
+            "price",
+            "meeting_link",
+            "note",
+            "status",
+            "booking_id",
+            "booking_status",
+            "payment_status",
+            "created_at",
+        ]
+
+
+class AdminCourseReviewSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source="course.title", read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source="student.email", read_only=True)
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
+    subject_name = serializers.CharField(source="course.subject.name", read_only=True)
+
+    class Meta:
+        model = CourseReview
+        fields = [
+            "id",
+            "course",
+            "course_title",
+            "student",
+            "student_name",
+            "student_email",
+            "tutor",
+            "tutor_name",
+            "tutor_email",
+            "subject_name",
+            "rating",
+            "comment",
+            "created_at",
+        ]
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username or obj.student.email
+
+
+class AdminViolationCaseSerializer(serializers.ModelSerializer):
+    reporter_name = serializers.SerializerMethodField()
+    target_user_name = serializers.SerializerMethodField()
+    target_user_email = serializers.EmailField(source="target_user.email", read_only=True)
+    booking_label = serializers.SerializerMethodField()
+    course_title = serializers.CharField(source="course.title", read_only=True)
+
+    class Meta:
+        model = ViolationCase
+        fields = [
+            "id",
+            "title",
+            "description",
+            "reporter",
+            "reporter_name",
+            "target_user",
+            "target_user_name",
+            "target_user_email",
+            "booking",
+            "booking_label",
+            "course",
+            "course_title",
+            "severity",
+            "status",
+            "resolution_note",
+            "resolved_by",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["resolved_by", "resolved_at", "created_at", "updated_at"]
+
+    def _user_label(self, user):
+        if not user:
+            return ""
+        return user.get_full_name() or user.username or user.email
+
+    def get_reporter_name(self, obj):
+        return self._user_label(obj.reporter)
+
+    def get_target_user_name(self, obj):
+        return self._user_label(obj.target_user)
+
+    def get_booking_label(self, obj):
+        if not obj.booking:
+            return ""
+        return f"Booking #{obj.booking_id} - {obj.booking.start_time:%d/%m/%Y %H:%M}"
+
+
+class AdminSystemSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSetting
+        fields = [
+            "id",
+            "key",
+            "label",
+            "value",
+            "value_type",
+            "description",
+            "updated_by",
+            "updated_at",
+        ]
+        read_only_fields = ["key", "label", "value_type", "description", "updated_by", "updated_at"]

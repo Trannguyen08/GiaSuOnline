@@ -11,6 +11,11 @@ export const bookingsApi = {
   getPublicTutorSlots: (tutorId: number | string) => client.get(`/bookings/public/tutors/${tutorId}/slots/`).then(r => r.data),
   bookSlot: (slotId: number, data: any = {}) => client.post(`/bookings/student/slots/${slotId}/book/`, data).then(r => r.data),
   getStudentBookings: () => client.get('/bookings/student/bookings/').then(r => r.data),
+  cancelStudentBooking: (id: number, data: any) => client.post(`/bookings/student/bookings/${id}/cancel/`, data).then(r => r.data),
   createDepositPayment: (bookingId: number) => client.post(`/bookings/student/bookings/${bookingId}/deposit/`).then(r => r.data),
   verifyPayment: (data: any) => client.post('/bookings/student/payments/verify/', data).then(r => r.data),
+  getPolicies: () => client.get('/bookings/policies/').then(r => r.data),
+  getSupportCases: () => client.get('/bookings/support/cases/').then(r => r.data),
+  createSupportCase: (data: any) => client.post('/bookings/support/cases/', data).then(r => r.data),
+  disputeTutorReview: (id: number, data: any) => client.post(`/bookings/tutor/reviews/${id}/dispute/`, data).then(r => r.data),
 };

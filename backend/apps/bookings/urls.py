@@ -12,6 +12,12 @@ from .views import (
     BookingDepositPaymentView,
     BookingPaymentVerifyView,
 )
+from .support_views import (
+    PublicPolicySettingsView,
+    StudentBookingCancelView,
+    TutorReviewDisputeView,
+    UserViolationCaseListCreateView,
+)
 
 urlpatterns = [
     path("tutor/bookings/", TutorBookingsView.as_view(), name="tutor-bookings"),
@@ -57,8 +63,24 @@ urlpatterns = [
         name="booking-deposit-payment",
     ),
     path(
+        "student/bookings/<int:pk>/cancel/",
+        StudentBookingCancelView.as_view(),
+        name="student-booking-cancel",
+    ),
+    path(
         "student/payments/verify/",
         BookingPaymentVerifyView.as_view(),
         name="booking-payment-verify",
+    ),
+    path("policies/", PublicPolicySettingsView.as_view(), name="booking-policies"),
+    path(
+        "support/cases/",
+        UserViolationCaseListCreateView.as_view(),
+        name="user-support-cases",
+    ),
+    path(
+        "tutor/reviews/<int:pk>/dispute/",
+        TutorReviewDisputeView.as_view(),
+        name="tutor-review-dispute",
     ),
 ]

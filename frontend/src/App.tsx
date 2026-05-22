@@ -18,6 +18,9 @@ import TutorSchedule from './pages/TutorSchedule';
 import TutorStudents from './pages/TutorStudents';
 import TutorSettings from './pages/TutorSettings';
 import TutorRooms from './pages/TutorRooms';
+import TutorBookings from './pages/TutorBookings';
+import TutorReviews from './pages/TutorReviews';
+import TutorSupportCases from './pages/TutorSupportCases';
 import StudyRooms from './pages/StudyRooms';
 
 // Course Pages
@@ -32,6 +35,19 @@ import AdminLayout from './components/layout/AdminLayout';
 import AdminDashboard from './pages/Admin/Dashboard';
 import TutorManagement from './pages/Admin/TutorManagement';
 import UserManagement from './pages/Admin/UserManagement';
+import AdminCourseManagement from './pages/Admin/CourseManagement';
+import AdminFinanceManagement from './pages/Admin/FinanceManagement';
+import {
+  AIReviewManagement,
+  AdminNotifications,
+  BookingManagement,
+  PaymentManagement,
+  ReportManagement,
+  ReviewManagement,
+  SettingsManagement,
+  SlotManagement,
+  ViolationManagement,
+} from './pages/Admin/Operations';
 
 function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
@@ -64,8 +80,11 @@ function App() {
             <Route path="/tutor" element={<TutorLayout />}>
               <Route path="dashboard" element={<TutorDashboard />} />
               <Route path="schedule" element={<TutorSchedule />} />
+              <Route path="bookings" element={<TutorBookings />} />
               <Route path="students" element={<TutorStudents />} />
               <Route path="rooms" element={<TutorRooms />} />
+              <Route path="reviews" element={<TutorReviews />} />
+              <Route path="support" element={<TutorSupportCases />} />
               <Route path="settings" element={<TutorSettings />} />
               <Route path="courses" element={<TutorCourseList />} />
               <Route path="courses/:id" element={<TutorCourseDetail />} />
@@ -77,6 +96,17 @@ function App() {
               <Route path="tutor-approvals" element={<TutorManagement mode="approval" />} />
               <Route path="tutors" element={<TutorManagement mode="management" />} />
               <Route path="users" element={<UserManagement />} />
+              <Route path="bookings" element={<BookingManagement />} />
+              <Route path="payments" element={<PaymentManagement />} />
+              <Route path="slots" element={<SlotManagement />} />
+              <Route path="classes" element={<AdminCourseManagement />} />
+              <Route path="finance" element={<AdminFinanceManagement />} />
+              <Route path="reviews" element={<ReviewManagement />} />
+              <Route path="violations" element={<ViolationManagement />} />
+              <Route path="ai-reviews" element={<AIReviewManagement />} />
+              <Route path="reports" element={<ReportManagement />} />
+              <Route path="settings" element={<SettingsManagement />} />
+              <Route path="notifications" element={<AdminNotifications />} />
               <Route index element={<AdminDashboard />} />
             </Route>
           </Routes>

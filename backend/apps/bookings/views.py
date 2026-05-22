@@ -250,10 +250,13 @@ class TutorTeachingSlotDetailView(APIView):
             )
 
         if slot.status == "booked":
-            return Response(
-                {"error": "Booked slots cannot be edited"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            allowed_fields = {"meeting_link", "note"}
+            update_fields = set(request.data.keys())
+            if not update_fields.issubset(allowed_fields):
+                return Response(
+                    {"error": "Booked slots only allow meeting link and note updates."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         serializer = TeachingSlotSerializer(
             slot, data=request.data, partial=True, context={"request": request}
