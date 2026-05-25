@@ -14,6 +14,8 @@ export const coursesApi = {
   getTutorExtensionRequests: () => client.get('/courses/tutor/extensions/').then(r => r.data),
   decideExtensionRequest: (id: number, data: any) => client.post(`/courses/tutor/extensions/${id}/decision/`, data).then(r => r.data),
   getTutorCourseDetail: (id: number) => client.get(`/courses/tutor/${id}/`).then(r => r.data),
+  feedbackStudent: (id: number, data: any) => client.post(`/courses/tutor/${id}/student-feedback/`, data).then(r => r.data),
+  getStudentFeedbacks: (studentId: number) => client.get(`/courses/tutor/students/${studentId}/feedbacks/`).then(r => r.data),
   updateSession: (sessionId: number, data: any) => client.patch(`/courses/tutor/sessions/${sessionId}/update/`, data).then(r => r.data),
   uploadMaterial: (sessionId: number, data: FormData) =>
     client.post(`/courses/tutor/sessions/${sessionId}/materials/`, data, {

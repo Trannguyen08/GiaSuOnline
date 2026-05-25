@@ -444,6 +444,10 @@ class AdminCourseReviewSerializer(serializers.ModelSerializer):
             "subject_name",
             "rating",
             "comment",
+            "moderation_status",
+            "moderation_score",
+            "moderation_flags",
+            "moderation_reason",
             "created_at",
         ]
 

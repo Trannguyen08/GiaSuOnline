@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import Booking, TutorAvailability, TeachingSlot
 from apps.users.serializers import UserSerializer
+from apps.courses.models import TutorStudentFeedback
+from apps.courses.serializers import TutorStudentFeedbackSerializer
 
 
 class BookingSerializer(serializers.ModelSerializer):
@@ -10,6 +12,7 @@ class BookingSerializer(serializers.ModelSerializer):
     tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
     slot_id = serializers.IntegerField(source="teaching_slot_id", read_only=True)
     deposit_due = serializers.BooleanField(read_only=True)
+    student_feedbacks = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -35,6 +38,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "tutor_name",
             "tutor_email",
             "deposit_due",
+            "student_feedbacks",
             "created_at",
         ]
         read_only_fields = [
@@ -46,6 +50,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "payment_checkout_url",
             "paid_at",
             "deposit_due",
+            "student_feedbacks",
             "created_at",
         ]
 
@@ -55,6 +60,21 @@ class BookingSerializer(serializers.ModelSerializer):
             instance.status == "approved" and instance.payment_status != "paid"
         )
         return data
+
+    def get_student_feedbacks(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_tutor", False):
+            return []
+        feedbacks = (
+            TutorStudentFeedback.objects.filter(
+                student=obj.student,
+                moderation_status=TutorStudentFeedback.ModerationStatus.APPROVED,
+            )
+            .select_related("course__subject", "tutor")
+            .order_by("-created_at")[:5]
+        )
+        return TutorStudentFeedbackSerializer(feedbacks, many=True).data
 
 
 class TutorAvailabilitySerializer(serializers.ModelSerializer):

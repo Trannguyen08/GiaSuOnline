@@ -103,7 +103,10 @@ class TeachingSlot(models.Model):
     class Meta:
         ordering = ["start_time"]
         indexes = [
-            models.Index(fields=["tutor", "status", "start_time"]),
+            models.Index(
+                fields=["tutor", "status", "start_time"],
+                name="bookings_te_tutor_i_0dde58_idx",
+            ),
         ]
 
     def __str__(self):

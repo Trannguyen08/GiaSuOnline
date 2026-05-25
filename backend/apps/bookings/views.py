@@ -1,6 +1,7 @@
 from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from django.db import transaction
 from django.conf import settings
 from django.utils import timezone
@@ -25,6 +26,11 @@ from apps.tutors.models import TutorSubject
 from apps.tutors.services.guarantee import (
     can_receive_new_classes,
     refresh_new_class_lock,
+)
+from core.cache_utils import (
+    get_cached_response,
+    invalidate_cache_groups,
+    set_cached_response,
 )
 
 User = get_user_model()
@@ -61,6 +67,9 @@ class TutorBookingsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        cached = get_cached_response("bookings", request, "tutor-bookings")
+        if cached is not None:
+            return Response(cached)
         if not request.user.is_tutor:
             return Response(
                 {"error": "Only tutors can access this"},
@@ -71,7 +80,8 @@ class TutorBookingsView(APIView):
         bookings = Booking.objects.filter(tutor=tutor_profile).order_by(
             "-start_time"
         )
-        serializer = BookingSerializer(bookings, many=True)
+        serializer = BookingSerializer(bookings, many=True, context={"request": request})
+        set_cached_response("bookings", serializer.data, request, "tutor-bookings")
         return Response(serializer.data)
 
 
@@ -79,17 +89,23 @@ class StudentBookingHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        cached = get_cached_response("bookings", request, "student-history")
+        if cached is not None:
+            return Response(cached)
         bookings = (
             Booking.objects.filter(student=request.user)
             .select_related("tutor", "subject", "teaching_slot")
             .order_by("-created_at")
         )
         serializer = BookingSerializer(bookings, many=True, context={"request": request})
+        set_cached_response("bookings", serializer.data, request, "student-history")
         return Response(serializer.data)
 
 
 class TutorBookingDecisionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "booking_action"
 
     @transaction.atomic
     def post(self, request, pk):
@@ -125,6 +141,7 @@ class TutorBookingDecisionView(APIView):
                 booking.teaching_slot.status = "available"
                 booking.teaching_slot.save(update_fields=["status"])
 
+        invalidate_cache_groups("bookings", "courses", "tutors")
         return Response(BookingSerializer(booking, context={"request": request}).data)
 
 
@@ -190,6 +207,9 @@ class TutorTeachingSlotListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        cached = get_cached_response("bookings", request, "tutor-slots")
+        if cached is not None:
+            return Response(cached)
         if not request.user.is_tutor:
             return Response(
                 {"error": "Only tutors can access this"},
@@ -204,6 +224,7 @@ class TutorTeachingSlotListCreateView(APIView):
         serializer = TeachingSlotSerializer(
             slots, many=True, context={"request": request}
         )
+        set_cached_response("bookings", serializer.data, request, "tutor-slots")
         return Response(serializer.data)
 
     def post(self, request):
@@ -228,12 +249,15 @@ class TutorTeachingSlotListCreateView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             serializer.save(tutor=tutor_profile)
+            invalidate_cache_groups("bookings", "tutors")
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class TutorTeachingSlotDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "booking_action"
 
     def patch(self, request, pk):
         if not request.user.is_tutor:
@@ -263,6 +287,7 @@ class TutorTeachingSlotDetailView(APIView):
         )
         if serializer.is_valid():
             serializer.save()
+            invalidate_cache_groups("bookings", "tutors")
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -287,6 +312,7 @@ class TutorTeachingSlotDetailView(APIView):
             )
 
         slot.delete()
+        invalidate_cache_groups("bookings", "tutors")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -294,6 +320,9 @@ class PublicTutorSlotListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, tutor_id):
+        cached = get_cached_response("bookings", request, f"public-slots:{tutor_id}")
+        if cached is not None:
+            return Response(cached)
         slots = (
             TeachingSlot.objects.filter(
                 tutor_id=tutor_id,
@@ -305,11 +334,14 @@ class PublicTutorSlotListView(APIView):
         serializer = TeachingSlotSerializer(
             slots, many=True, context={"request": request}
         )
+        set_cached_response("bookings", serializer.data, request, f"public-slots:{tutor_id}")
         return Response(serializer.data)
 
 
 class StudentBookSlotView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "booking_action"
 
     @transaction.atomic
     def post(self, request, slot_id):
@@ -375,6 +407,7 @@ class StudentBookSlotView(APIView):
         slot.status = "booked"
         slot.save(update_fields=["status"])
         transaction.on_commit(lambda: send_booking_requested_email(booking))
+        invalidate_cache_groups("bookings", "tutors")
 
         serializer = BookingSerializer(booking, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -382,6 +415,8 @@ class StudentBookSlotView(APIView):
 
 class BookingDepositPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "payment_action"
 
     def post(self, request, pk):
         try:
@@ -483,6 +518,8 @@ class BookingDepositPaymentView(APIView):
 
 class BookingPaymentVerifyView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "payment_action"
 
     def post(self, request):
         order_code = request.data.get("orderCode") or request.query_params.get(

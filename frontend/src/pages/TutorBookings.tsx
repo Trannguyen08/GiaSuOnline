@@ -97,6 +97,16 @@ const TutorBookings: React.FC = () => {
                 <h2 className="text-lg font-extrabold text-slate-900">#{booking.id} · {booking.subject_name || 'Môn học'}</h2>
                 <p className="mt-1 text-sm font-semibold text-slate-500">{new Date(booking.start_time).toLocaleString('vi-VN')} - {new Date(booking.end_time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</p>
                 <p className="mt-1 text-sm text-slate-500">Học viên: {booking.student_details?.username || booking.student_details?.email || '---'}</p>
+                {booking.student_feedbacks?.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {booking.student_feedbacks.slice(0, 2).map((feedback: any) => (
+                      <div key={feedback.id} className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-xs font-bold text-yellow-600">{feedback.rating}/5 sao từ {feedback.tutor_name}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">{feedback.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 {booking.status === 'pending' && (

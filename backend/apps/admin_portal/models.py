@@ -3,6 +3,9 @@ from django.db import models
 
 
 class ViolationCase(models.Model):
+    id = models.BigAutoField(
+        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+    )
     STATUS_CHOICES = [
         ("open", "Open"),
         ("investigating", "Investigating"),
@@ -75,6 +78,9 @@ class ViolationCase(models.Model):
 
 
 class SystemSetting(models.Model):
+    id = models.BigAutoField(
+        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+    )
     key = models.SlugField(max_length=100, unique=True)
     label = models.CharField(max_length=255)
     value = models.CharField(max_length=500)

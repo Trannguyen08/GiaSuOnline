@@ -1,5 +1,6 @@
 from rest_framework import permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.db.models import Q
@@ -14,6 +15,11 @@ from .support_serializers import (
     ViolationCaseListSerializer,
 )
 from .views import get_tutor_profile
+from core.cache_utils import (
+    get_cached_response,
+    invalidate_cache_groups,
+    set_cached_response,
+)
 
 User = get_user_model()
 
@@ -65,6 +71,9 @@ class PublicPolicySettingsView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
+        cached = get_cached_response("bookings", request, "public-policies")
+        if cached is not None:
+            return Response(cached)
         ensure_public_policy_settings()
         settings = SystemSetting.objects.filter(
             key__in=[
@@ -74,11 +83,15 @@ class PublicPolicySettingsView(APIView):
                 "tutor-guarantee-required-amount",
             ]
         )
-        return Response(PolicySettingSerializer(settings, many=True).data)
+        data = PolicySettingSerializer(settings, many=True).data
+        set_cached_response("bookings", data, request, "public-policies")
+        return Response(data)
 
 
 class StudentBookingCancelView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "booking_action"
 
     def post(self, request, pk):
         try:
@@ -104,11 +117,14 @@ class StudentBookingCancelView(APIView):
         if booking.teaching_slot:
             booking.teaching_slot.status = "available"
             booking.teaching_slot.save(update_fields=["status"])
+        invalidate_cache_groups("bookings", "tutors")
         return Response({"message": "Booking cancelled successfully."})
 
 
 class UserViolationCaseListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "feedback_action"
 
     def get(self, request):
         queryset = ViolationCase.objects.select_related(
@@ -177,6 +193,8 @@ class UserViolationCaseListCreateView(APIView):
 
 class TutorReviewDisputeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "feedback_action"
 
     def post(self, request, pk):
         tutor_profile = get_tutor_profile(request.user)

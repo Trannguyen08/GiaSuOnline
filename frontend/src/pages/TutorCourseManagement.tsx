@@ -299,11 +299,13 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
 export const TutorCourseDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { course, loading, fetchDetail, updateSession, uploadMaterial, deleteMaterial } = useTutorCourseDetail(Number(id));
+  const { course, loading, fetchDetail, updateSession, uploadMaterial, deleteMaterial, feedbackStudent } = useTutorCourseDetail(Number(id));
   const [activeSession, setActiveSession] = useState<any>(null);
   const [uploadSession, setUploadSession] = useState<any>(null);
   const [editNotes, setEditNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({ rating: 5, comment: '' });
+  const [savingFeedback, setSavingFeedback] = useState(false);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
   useEffect(() => {
@@ -321,6 +323,13 @@ export const TutorCourseDetail: React.FC = () => {
     setSavingNotes(true);
     await updateSession(activeSession.id, { tutor_notes: editNotes });
     setSavingNotes(false);
+  };
+
+  const handleFeedbackStudent = async () => {
+    if (!feedbackForm.comment.trim()) return;
+    setSavingFeedback(true);
+    await feedbackStudent(feedbackForm);
+    setSavingFeedback(false);
   };
 
   return (
@@ -470,6 +479,50 @@ export const TutorCourseDetail: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {course.status === 'completed' && (
+                <div className="bg-white rounded-3xl p-6 border border-gray-100">
+                  <div className="mb-4">
+                    <h3 className="font-extrabold text-gray-900">Feedback học viên</h3>
+                    {course.student_feedback && (
+                      <p className="mt-1 text-xs font-semibold text-gray-400">
+                        Trạng thái AI: {course.student_feedback.moderation_status}
+                      </p>
+                    )}
+                  </div>
+                  {course.student_feedback ? (
+                    <div className="rounded-2xl bg-gray-50 p-4">
+                      <p className="text-sm font-bold text-yellow-500">{course.student_feedback.rating}/5 sao</p>
+                      <p className="mt-2 text-sm text-gray-600">{course.student_feedback.comment}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <select
+                        value={feedbackForm.rating}
+                        onChange={e => setFeedbackForm({ ...feedbackForm, rating: Number(e.target.value) })}
+                        className="w-full rounded-xl bg-gray-50 px-4 py-3 text-sm font-semibold outline-none"
+                      >
+                        {[5,4,3,2,1].map(item => <option key={item} value={item}>{item}/5 sao</option>)}
+                      </select>
+                      <textarea
+                        rows={4}
+                        value={feedbackForm.comment}
+                        onChange={e => setFeedbackForm({ ...feedbackForm, comment: e.target.value })}
+                        placeholder="Nhận xét về thái độ học tập, đúng giờ, chuẩn bị bài, trao đổi trong quá trình học..."
+                        className="w-full rounded-xl bg-gray-50 px-4 py-3 text-sm font-medium outline-none resize-none"
+                      />
+                      <button
+                        onClick={handleFeedbackStudent}
+                        disabled={savingFeedback || !feedbackForm.comment.trim()}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[#5a5ce6] px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4" />
+                        {savingFeedback ? 'Đang gửi...' : 'Gửi feedback'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -146,5 +146,10 @@ export const useTutorCourseDetail = (courseId: number) => {
     }
   }, [fetchDetail]);
 
-  return { course, loading, fetchDetail, updateSession, uploadMaterial, deleteMaterial };
+  const feedbackStudent = useCallback(async (data: any) => {
+    await coursesApi.feedbackStudent(courseId, data);
+    await fetchDetail();
+  }, [courseId, fetchDetail]);
+
+  return { course, loading, fetchDetail, updateSession, uploadMaterial, deleteMaterial, feedbackStudent };
 };

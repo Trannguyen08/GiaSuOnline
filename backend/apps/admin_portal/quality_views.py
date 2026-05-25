@@ -1,13 +1,14 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Count, Q, Sum
+from django.db.models import Avg, Count, Q
 from django.utils import timezone
 
 from apps.courses.models import CourseReview
 
 from .models import ViolationCase
 from .serializers import AdminCourseReviewSerializer, AdminViolationCaseSerializer
+from core.cache_utils import invalidate_cache_groups
 from .views import IsAdminUser
 
 
@@ -49,10 +50,14 @@ class AdminReviewActionView(APIView):
             return Response({"error": "Review not found"}, status=status.HTTP_404_NOT_FOUND)
         tutor = review.tutor
         review.delete()
-        stats = CourseReview.objects.filter(tutor=tutor).aggregate(avg=Sum("rating"), count=Count("id"))
+        invalidate_cache_groups("courses", "tutors", "reviews")
+        stats = CourseReview.objects.filter(
+            tutor=tutor,
+            moderation_status=CourseReview.ModerationStatus.APPROVED,
+        ).aggregate(avg=Avg("rating"), count=Count("id"))
         count = stats["count"] or 0
         tutor.total_reviews = count
-        tutor.rating_avg = (stats["avg"] or 0) / count if count else 0
+        tutor.rating_avg = stats["avg"] or 0
         tutor.save(update_fields=["rating_avg", "total_reviews"])
         return Response({"message": "Review deleted successfully"})
 

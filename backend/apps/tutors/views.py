@@ -23,6 +23,7 @@ from .services.guarantee import (
 )
 from apps.courses.models import CourseReview
 from apps.courses.serializers import CourseReviewSerializer
+from core.cache_utils import get_cached_response, set_cached_response
 
 
 class TutorSettingsView(APIView):
@@ -133,8 +134,12 @@ class SubjectListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
+        cached = get_cached_response("tutors", request, "subjects")
+        if cached is not None:
+            return Response(cached)
         subjects = Subject.objects.all()
         serializer = SubjectSerializer(subjects, many=True)
+        set_cached_response("tutors", serializer.data, request, "subjects")
         return Response(serializer.data)
 
 
@@ -142,6 +147,9 @@ class TutorPublicListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
+        cached = get_cached_response("tutors", request, "public-list")
+        if cached is not None:
+            return Response(cached)
         queryset = (
             TutorProfile.objects.filter(
                 is_available=True,
@@ -242,6 +250,7 @@ class TutorPublicListView(APIView):
         serializer = TutorProfileSerializer(
             queryset.distinct(), many=True, context={"request": request}
         )
+        set_cached_response("tutors", serializer.data, request, "public-list")
         return Response(serializer.data)
 
     def _list_param(self, request, key):
@@ -269,6 +278,9 @@ class TutorPublicDetailView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, pk):
+        cached = get_cached_response("tutors", request, f"public-detail:{pk}")
+        if cached is not None:
+            return Response(cached)
         try:
             profile = (
                 TutorProfile.objects.select_related("user", "user__tutor_profile")
@@ -287,6 +299,7 @@ class TutorPublicDetailView(APIView):
             ):
                 raise TutorProfile.DoesNotExist
             serializer = TutorProfileSerializer(profile, context={"request": request})
+            set_cached_response("tutors", serializer.data, request, f"public-detail:{pk}")
             return Response(serializer.data)
         except TutorProfile.DoesNotExist:
             return Response(
@@ -299,7 +312,10 @@ class TutorPublicReviewListView(APIView):
 
     def get(self, request, pk):
         reviews = (
-            CourseReview.objects.filter(tutor_id=pk)
+            CourseReview.objects.filter(
+                tutor_id=pk,
+                moderation_status=CourseReview.ModerationStatus.APPROVED,
+            )
             .select_related("student", "course__subject")
             .order_by("-created_at")
         )

@@ -7,6 +7,7 @@ from .models import (
     StudyRoomSession,
     StudyRoomMaterial,
     CourseReview,
+    TutorStudentFeedback,
     CourseExtensionRequest,
 )
 from apps.users.serializers import UserSerializer
@@ -98,6 +99,10 @@ class CourseReviewSerializer(serializers.ModelSerializer):
             "subject_name",
             "rating",
             "comment",
+            "moderation_status",
+            "moderation_score",
+            "moderation_flags",
+            "moderation_reason",
             "created_at",
         ]
         read_only_fields = [
@@ -105,6 +110,58 @@ class CourseReviewSerializer(serializers.ModelSerializer):
             "course",
             "student_name",
             "subject_name",
+            "moderation_status",
+            "moderation_score",
+            "moderation_flags",
+            "moderation_reason",
+            "created_at",
+        ]
+
+    def get_student_name(self, obj):
+        return obj.student.get_full_name() or obj.student.username or obj.student.email
+
+    def validate_rating(self, value):
+        if value < 1 or value > 5:
+            raise serializers.ValidationError("Rating must be between 1 and 5.")
+        return value
+
+
+class TutorStudentFeedbackSerializer(serializers.ModelSerializer):
+    student_name = serializers.SerializerMethodField()
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    course_title = serializers.CharField(source="course.title", read_only=True)
+    subject_name = serializers.CharField(source="course.subject.name", read_only=True)
+
+    class Meta:
+        model = TutorStudentFeedback
+        fields = [
+            "id",
+            "course",
+            "course_title",
+            "subject_name",
+            "student",
+            "student_name",
+            "tutor_name",
+            "rating",
+            "comment",
+            "moderation_status",
+            "moderation_score",
+            "moderation_flags",
+            "moderation_reason",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "course",
+            "course_title",
+            "subject_name",
+            "student",
+            "student_name",
+            "tutor_name",
+            "moderation_status",
+            "moderation_score",
+            "moderation_flags",
+            "moderation_reason",
             "created_at",
         ]
 
@@ -167,6 +224,7 @@ class CourseListSerializer(serializers.ModelSerializer):
     )
     can_review = serializers.BooleanField(source="can_student_review", read_only=True)
     review = CourseReviewSerializer(read_only=True)
+    student_feedback = TutorStudentFeedbackSerializer(read_only=True)
     pending_extension_request = serializers.SerializerMethodField()
 
     class Meta:
@@ -189,6 +247,7 @@ class CourseListSerializer(serializers.ModelSerializer):
             "session_duration_minutes",
             "can_review",
             "review",
+            "student_feedback",
             "pending_extension_request",
         ]
 

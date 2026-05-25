@@ -8,6 +8,8 @@ from .views import (
     TutorCourseListView,
     TutorCourseDetailView,
     TutorCourseReviewListView,
+    TutorStudentFeedbackCreateView,
+    TutorStudentFeedbackListView,
     TutorExtensionRequestListView,
     TutorExtensionRequestDecisionView,
     TutorSessionUpdateView,
@@ -69,6 +71,16 @@ urlpatterns = [
     ),
     path(
         "tutor/<int:pk>/", TutorCourseDetailView.as_view(), name="tutor-course-detail"
+    ),
+    path(
+        "tutor/<int:pk>/student-feedback/",
+        TutorStudentFeedbackCreateView.as_view(),
+        name="tutor-student-feedback-create",
+    ),
+    path(
+        "tutor/students/<int:student_id>/feedbacks/",
+        TutorStudentFeedbackListView.as_view(),
+        name="tutor-student-feedback-list",
     ),
     path(
         "tutor/sessions/<int:session_id>/update/",

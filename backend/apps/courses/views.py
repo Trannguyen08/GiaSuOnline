@@ -3,10 +3,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.throttling import ScopedRateThrottle
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.conf import settings
-from django.db.models import Avg
 from datetime import date, timedelta
 
 from .models import (
@@ -19,6 +19,7 @@ from .models import (
     StudyRoomMaterial,
     StudyRoomRead,
     CourseReview,
+    TutorStudentFeedback,
     CourseExtensionRequest,
 )
 from .serializers import (
@@ -32,7 +33,14 @@ from .serializers import (
     StudyRoomMaterialSerializer,
     StudyRoomStudentAddSerializer,
     CourseReviewSerializer,
+    TutorStudentFeedbackSerializer,
     CourseExtensionRequestSerializer,
+)
+from .tasks import moderate_course_review, moderate_tutor_student_feedback
+from core.cache_utils import (
+    get_cached_response,
+    invalidate_cache_groups,
+    set_cached_response,
 )
 from core.s3_uploads import (
     build_material_key,
@@ -90,6 +98,9 @@ class StudentCourseListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        cached = get_cached_response("courses", request, "student-list")
+        if cached is not None:
+            return Response(cached)
         courses = (
             Course.objects.filter(student=request.user)
             .select_related("tutor", "subject")
@@ -119,8 +130,7 @@ class StudentCourseListView(APIView):
         serializer = CourseListSerializer(
             courses, many=True, context={"request": request}
         )
-        return Response(
-            {
+        data = {
                 "summary": {
                     "total_this_week": total_this_week,
                     "completed_this_week": completed_this_week,
@@ -129,7 +139,8 @@ class StudentCourseListView(APIView):
                 },
                 "courses": serializer.data,
             }
-        )
+        set_cached_response("courses", data, request, "student-list")
+        return Response(data)
 
 
 class StudentCourseDetailView(APIView):
@@ -138,14 +149,22 @@ class StudentCourseDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        cached = get_cached_response("courses", request, f"student-detail:{pk}")
+        if cached is not None:
+            return Response(cached)
         try:
-            course = Course.objects.get(pk=pk, student=request.user)
+            course = (
+                Course.objects.select_related("tutor", "subject")
+                .prefetch_related("sessions__materials")
+                .get(pk=pk, student=request.user)
+            )
         except Course.DoesNotExist:
             return Response(
                 {"error": "Không tìm thấy khóa học"}, status=status.HTTP_404_NOT_FOUND
             )
 
         serializer = CourseDetailSerializer(course, context={"request": request})
+        set_cached_response("courses", serializer.data, request, f"student-detail:{pk}")
         return Response(serializer.data)
 
 
@@ -153,6 +172,8 @@ class StudentSessionCompleteView(APIView):
     """Student: Đánh dấu hoàn thành buổi học"""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
 
     def post(self, request, session_id):
         try:
@@ -178,6 +199,7 @@ class StudentSessionCompleteView(APIView):
             course.status = "completed"
             course.save(update_fields=["status", "updated_at"])
             accrue_course_commission(course)
+        invalidate_cache_groups("courses")
         return Response(
             {
                 "message": "Đã đánh dấu hoàn thành buổi học!",
@@ -188,6 +210,8 @@ class StudentSessionCompleteView(APIView):
 
 class StudentCourseReviewView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "feedback_action"
 
     def post(self, request, pk):
         try:
@@ -218,14 +242,8 @@ class StudentCourseReviewView(APIView):
             review = serializer.save(
                 course=course, student=request.user, tutor=course.tutor
             )
-            stats = CourseReview.objects.filter(tutor=course.tutor).aggregate(
-                avg=Avg("rating")
-            )
-            course.tutor.rating_avg = stats["avg"] or 0
-            course.tutor.total_reviews = CourseReview.objects.filter(
-                tutor=course.tutor
-            ).count()
-            course.tutor.save(update_fields=["rating_avg", "total_reviews"])
+            moderate_course_review.delay(review.id)
+            invalidate_cache_groups("courses", "reviews")
             return Response(
                 CourseReviewSerializer(review, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
@@ -235,6 +253,8 @@ class StudentCourseReviewView(APIView):
 
 class StudentCourseExtensionRequestView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
 
     def post(self, request, pk):
         try:
@@ -265,6 +285,7 @@ class StudentCourseExtensionRequestView(APIView):
         )
         if serializer.is_valid():
             extension = serializer.save(course=course, requested_by=request.user)
+            invalidate_cache_groups("courses")
             return Response(
                 CourseExtensionRequestSerializer(extension).data,
                 status=status.HTTP_201_CREATED,
@@ -281,6 +302,9 @@ class TutorCourseListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        cached = get_cached_response("courses", request, "tutor-list")
+        if cached is not None:
+            return Response(cached)
         try:
             tutor_profile = request.user.teaching_profile
         except Exception:
@@ -298,13 +322,13 @@ class TutorCourseListView(APIView):
         serializer = CourseListSerializer(
             courses, many=True, context={"request": request}
         )
-        return Response(
-            {
+        data = {
                 "courses": serializer.data,
                 "total_students": courses.values("student").distinct().count(),
                 "active_courses": courses.filter(status="active").count(),
             }
-        )
+        set_cached_response("courses", data, request, "tutor-list")
+        return Response(data)
 
 
 class TutorCourseReviewListView(APIView):
@@ -312,7 +336,10 @@ class TutorCourseReviewListView(APIView):
 
     def get(self, request):
         reviews = (
-            CourseReview.objects.filter(tutor=request.user.teaching_profile)
+            CourseReview.objects.filter(
+                tutor=request.user.teaching_profile,
+                moderation_status=CourseReview.ModerationStatus.APPROVED,
+            )
             .select_related("student", "course__subject")
             .order_by("-created_at")
         )
@@ -339,6 +366,8 @@ class TutorExtensionRequestListView(APIView):
 
 class TutorExtensionRequestDecisionView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
 
     def post(self, request, pk):
         try:
@@ -369,6 +398,7 @@ class TutorExtensionRequestDecisionView(APIView):
             extension.course.status = "active"
             extension.course.save(update_fields=["end_date", "status", "updated_at"])
 
+        invalidate_cache_groups("courses")
         return Response(CourseExtensionRequestSerializer(extension).data)
 
 
@@ -378,15 +408,95 @@ class TutorCourseDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        cached = get_cached_response("courses", request, f"tutor-detail:{pk}")
+        if cached is not None:
+            return Response(cached)
         try:
-            course = Course.objects.get(pk=pk, tutor=request.user.teaching_profile)
+            course = (
+                Course.objects.select_related("student", "subject")
+                .prefetch_related("sessions__materials")
+                .get(pk=pk, tutor=request.user.teaching_profile)
+            )
         except Course.DoesNotExist:
             return Response(
                 {"error": "Không tìm thấy khóa học"}, status=status.HTTP_404_NOT_FOUND
             )
 
         serializer = CourseDetailSerializer(course, context={"request": request})
+        set_cached_response("courses", serializer.data, request, f"tutor-detail:{pk}")
         return Response(serializer.data)
+
+
+class TutorStudentFeedbackCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "feedback_action"
+
+    def post(self, request, pk):
+        try:
+            course = Course.objects.select_related("student", "tutor").get(
+                pk=pk,
+                tutor=request.user.teaching_profile,
+                status="completed",
+            )
+        except Course.DoesNotExist:
+            return Response(
+                {"error": "Chi co the feedback hoc vien sau khi khoa hoc hoan thanh."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if hasattr(course, "student_feedback"):
+            return Response(
+                {"error": "Ban da feedback hoc vien cho khoa hoc nay."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TutorStudentFeedbackSerializer(data=request.data)
+        if serializer.is_valid():
+            feedback = serializer.save(
+                course=course, tutor=course.tutor, student=course.student
+            )
+            moderate_tutor_student_feedback.delay(feedback.id)
+            invalidate_cache_groups("courses", "student_feedback")
+            return Response(
+                TutorStudentFeedbackSerializer(feedback).data,
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TutorStudentFeedbackListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, student_id):
+        try:
+            tutor_profile = request.user.teaching_profile
+        except Exception:
+            return Response(
+                {"error": "Khong tim thay ho so gia su"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        has_booking = Course.objects.filter(
+            tutor=tutor_profile, student_id=student_id
+        ).exists()
+        if not has_booking:
+            from apps.bookings.models import Booking
+
+            has_booking = Booking.objects.filter(
+                tutor=tutor_profile, student_id=student_id
+            ).exists()
+        if not has_booking:
+            return Response(
+                {"error": "Chi gia su co booking/khoa hoc voi hoc vien moi duoc xem feedback."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        feedbacks = TutorStudentFeedback.objects.filter(
+            student_id=student_id,
+            moderation_status=TutorStudentFeedback.ModerationStatus.APPROVED,
+        ).select_related("course__subject", "tutor")
+        return Response(TutorStudentFeedbackSerializer(feedbacks, many=True).data)
 
 
 class TutorSessionUpdateView(APIView):
@@ -394,6 +504,8 @@ class TutorSessionUpdateView(APIView):
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
 
     def patch(self, request, session_id):
         """Update tutor notes for session"""
@@ -411,6 +523,7 @@ class TutorSessionUpdateView(APIView):
         session.tutor_notes = tutor_notes
         session.title = title
         session.save()
+        invalidate_cache_groups("courses")
 
         serializer = CourseSessionSerializer(session, context={"request": request})
         return Response(serializer.data)
@@ -421,6 +534,8 @@ class TutorSessionMaterialUploadView(APIView):
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "upload_action"
 
     def post(self, request, session_id):
         try:
@@ -455,6 +570,7 @@ class TutorSessionMaterialUploadView(APIView):
                 apply_direct_file_metadata(material, file_obj)
             except ValueError as exc:
                 return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            invalidate_cache_groups("courses")
             return Response(
                 SessionMaterialSerializer(material, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
@@ -473,6 +589,7 @@ class TutorSessionMaterialUploadView(APIView):
             )
 
         material.delete()
+        invalidate_cache_groups("courses")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -517,6 +634,7 @@ class TutorSessionMaterialPresignView(APIView):
             content_type=content_type,
             upload_status="pending",
         )
+        invalidate_cache_groups("courses")
         return Response(
             {
                 "material": SessionMaterialSerializer(
@@ -552,6 +670,7 @@ class TutorSessionMaterialCompleteView(APIView):
 
         material.upload_status = "ready"
         material.save(update_fields=["upload_status"])
+        invalidate_cache_groups("courses")
         return Response(
             SessionMaterialSerializer(material, context={"request": request}).data
         )
