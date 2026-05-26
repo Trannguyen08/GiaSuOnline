@@ -54,6 +54,8 @@ class TutorGuaranteeTransaction(models.Model):
         ("commission_accrual", "Commission accrual"),
         ("commission_payment", "Commission payment"),
         ("deposit_deduction", "Deposit deduction"),
+        ("deposit_refund", "Deposit refund"),
+        ("deposit_release", "Booking deposit release"),
     ]
 
     tutor = models.ForeignKey(
@@ -86,7 +88,8 @@ class TutorSubject(models.Model):
     )
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE)
     level = models.CharField(max_length=100)  # Cấp độ: Nâng cao, Cơ bản...
-    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2)
+    hourly_rate = models.DecimalField(max_digits=10, decimal_places=2, default=70000)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.tutor.user.username} teaches {self.subject.name}"

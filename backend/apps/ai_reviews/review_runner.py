@@ -82,6 +82,7 @@ class AIReviewRunner:
             "experience_years": tutor.experience_years,
             "teaching_levels": tutor.teaching_levels,
             "teaching_region": tutor.teaching_region,
+            "cccd_number": getattr(tutor, "cccd_number", "") or "",
             "email": getattr(tutor.user, "email", ""),
             "phone": getattr(tutor.user, "phone", ""),
         }
@@ -91,15 +92,6 @@ class AIReviewRunner:
         self._append_file(parts, "portrait", getattr(tutor.user, "avatar", None))
         self._append_file(parts, "id_front", tutor.id_front)
         self._append_file(parts, "id_back", tutor.id_back)
-
-        degree_images = (
-            list(tutor.degree_images.all()) if hasattr(tutor, "degree_images") else []
-        )
-        if degree_images:
-            for item in degree_images:
-                self._append_file(parts, "certificates", item.image)
-        else:
-            self._append_file(parts, "certificates", tutor.degree_image)
 
         for item in tutor.achievements.all() if hasattr(tutor, "achievements") else []:
             self._append_file(parts, "certificates", item.image)

@@ -13,6 +13,8 @@ export const adminApi = {
   getFinance: (params?: any) => client.get('/admin/finance/', { params }).then(res => res.data),
   financeTutorAction: (id: number, action: string, data?: any) =>
     client.post(`/admin/finance/tutors/${id}/action/`, { action, ...data }).then(res => res.data),
+  payoutRequestAction: (id: number, action: string, data?: any) =>
+    client.post(`/admin/finance/payout-requests/${id}/action/`, { action, ...data }).then(res => res.data),
 
   // Bookings / payments / slots
   getBookings: (params?: any) => client.get('/admin/bookings/', { params }).then(res => res.data),
@@ -29,8 +31,6 @@ export const adminApi = {
   createViolation: (data: any) => client.post('/admin/violations/', data).then(res => res.data),
   violationAction: (id: number, action: string, data?: any) =>
     client.post(`/admin/violations/${id}/action/`, { action, ...data }).then(res => res.data),
-  getAiReviews: (params?: any) => client.get('/admin/ai-reviews/', { params }).then(res => res.data),
-  rerunAiReview: (id: number) => client.post(`/admin/ai-reviews/${id}/rerun/`).then(res => res.data),
 
   // Reports / settings / notifications
   getReports: (params?: any) => client.get('/admin/reports/', { params }).then(res => res.data),

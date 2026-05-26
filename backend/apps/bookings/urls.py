@@ -7,6 +7,7 @@ from .views import (
     TutorTeachingSlotDetailView,
     PublicTutorSlotListView,
     StudentBookSlotView,
+    StudentCreateBookingView,
     StudentBookingHistoryView,
     TutorBookingDecisionView,
     BookingDepositPaymentView,
@@ -51,6 +52,11 @@ urlpatterns = [
         "student/slots/<int:slot_id>/book/",
         StudentBookSlotView.as_view(),
         name="student-book-slot",
+    ),
+    path(
+        "student/tutors/<int:tutor_id>/book/",
+        StudentCreateBookingView.as_view(),
+        name="student-create-booking",
     ),
     path(
         "student/bookings/",

@@ -6,8 +6,10 @@ from django.db import transaction
 from django.conf import settings
 from django.utils import timezone
 from django.utils.crypto import get_random_string
+from django.utils.dateparse import parse_date
 from kombu.exceptions import OperationalError as QueueOperationalError
 from decimal import Decimal
+from datetime import timedelta
 from .models import Booking, TutorAvailability, TeachingSlot
 from .emails import (
     send_booking_approved_email,
@@ -47,6 +49,61 @@ def calculate_deposit_amount(tutor_subject, start_time, end_time):
     return (tutor_subject.hourly_rate * hours).quantize(Decimal("0.01"))
 
 
+def calculate_booking_deposit(total_amount):
+    rate = Decimal(str(getattr(settings, "BOOKING_DEPOSIT_RATE", "0.20")))
+    return (Decimal(str(total_amount)) * rate).quantize(Decimal("0.01"))
+
+
+def calculate_slots_total(tutor_subject, slots):
+    total_hours = sum(
+        Decimal(str((slot.end_time - slot.start_time).total_seconds()))
+        / Decimal("3600")
+        for slot in slots
+    )
+    return (tutor_subject.hourly_rate * total_hours).quantize(Decimal("0.01"))
+
+
+def count_weekday_in_range(start_date, end_date, weekday):
+    target_weekday = 6 if int(weekday) == 0 else int(weekday) - 1
+    current = start_date
+    total = 0
+    while current <= end_date:
+        if current.weekday() == target_weekday:
+            total += 1
+        current += timedelta(days=1)
+    return total
+
+
+def calculate_recurring_slots_total(tutor_subject, slots, schedules, start_date, end_date):
+    slot_map = {slot.id: slot for slot in slots}
+    total_hours = Decimal("0")
+    for item in schedules or []:
+        if not isinstance(item, dict) or item.get("day") is None:
+            continue
+        slot = slot_map.get(item.get("slot_id"))
+        if not slot:
+            continue
+        hours = Decimal(str((slot.end_time - slot.start_time).total_seconds())) / Decimal(
+            "3600"
+        )
+        total_hours += hours * Decimal(
+            count_weekday_in_range(start_date, end_date, item.get("day"))
+        )
+    if total_hours <= 0:
+        return calculate_slots_total(tutor_subject, slots)
+    return (tutor_subject.hourly_rate * total_hours).quantize(Decimal("0.01"))
+
+
+def release_booking_slots(booking):
+    slot_ids = booking.selected_slot_ids or []
+    if not slot_ids and booking.teaching_slot_id:
+        slot_ids = [booking.teaching_slot_id]
+    if slot_ids:
+        TeachingSlot.objects.filter(id__in=slot_ids, status="booked").update(
+            status="available"
+        )
+
+
 def get_student_booking_for_payment(*, user, booking_id=None, order_code=None):
     filters = {"student": user}
     if order_code:
@@ -61,6 +118,17 @@ def get_student_booking_for_payment(*, user, booking_id=None, order_code=None):
         .select_related("student", "tutor__user", "subject")
         .get(**filters)
     )
+
+
+def get_frontend_base_url(request):
+    origin = request.headers.get("Origin")
+    if origin:
+        return origin.rstrip("/")
+    scheme = "https" if request.is_secure() else "http"
+    host = request.get_host()
+    if host:
+        return f"{scheme}://{host}".rstrip("/")
+    return getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
 
 
 class TutorBookingsView(APIView):
@@ -112,7 +180,7 @@ class TutorBookingDecisionView(APIView):
         tutor_profile = get_tutor_profile(request.user)
         try:
             booking = (
-                Booking.objects.select_for_update()
+                Booking.objects.select_for_update(of=("self",))
                 .select_related("student", "tutor__user", "subject")
                 .get(pk=pk, tutor=tutor_profile, status="pending")
             )
@@ -137,9 +205,7 @@ class TutorBookingDecisionView(APIView):
             booking.status = "cancelled"
             booking.payment_status = "cancelled"
             booking.save(update_fields=["status", "payment_status"])
-            if booking.teaching_slot:
-                booking.teaching_slot.status = "available"
-                booking.teaching_slot.save(update_fields=["status"])
+            release_booking_slots(booking)
 
         invalidate_cache_groups("bookings", "courses", "tutors")
         return Response(BookingSerializer(booking, context={"request": request}).data)
@@ -218,6 +284,7 @@ class TutorTeachingSlotListCreateView(APIView):
 
         slots = (
             TeachingSlot.objects.filter(tutor=get_tutor_profile(request.user))
+            .exclude(status="cancelled")
             .select_related("subject", "tutor")
             .order_by("start_time")
         )
@@ -307,11 +374,12 @@ class TutorTeachingSlotDetailView(APIView):
 
         if slot.status == "booked":
             return Response(
-                {"error": "Booked slots cannot be deleted"},
+                {"error": "Booked slots cannot be deleted while a booking is active."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        slot.delete()
+        slot.status = "cancelled"
+        slot.save(update_fields=["status"])
         invalidate_cache_groups("bookings", "tutors")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -327,6 +395,7 @@ class PublicTutorSlotListView(APIView):
             TeachingSlot.objects.filter(
                 tutor_id=tutor_id,
                 status="available",
+                start_time__gte=timezone.now(),
             )
             .select_related("subject", "tutor")
             .order_by("start_time")
@@ -389,16 +458,17 @@ class StudentBookSlotView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        deposit_amount = calculate_deposit_amount(
+        total_amount = calculate_deposit_amount(
             tutor_subject, slot.start_time, slot.end_time
         )
+        deposit_amount = calculate_booking_deposit(total_amount)
         booking = Booking.objects.create(
             student=request.user,
             tutor=slot.tutor,
             subject=tutor_subject.subject,
             start_time=slot.start_time,
             end_time=slot.end_time,
-            total_price=deposit_amount,
+            total_price=total_amount,
             deposit_amount=deposit_amount,
             notes=request.data.get("notes", ""),
             teaching_slot=slot,
@@ -406,6 +476,116 @@ class StudentBookSlotView(APIView):
         )
         slot.status = "booked"
         slot.save(update_fields=["status"])
+        transaction.on_commit(lambda: send_booking_requested_email(booking))
+        invalidate_cache_groups("bookings", "tutors")
+
+        serializer = BookingSerializer(booking, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class StudentCreateBookingView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "booking_action"
+
+    @transaction.atomic
+    def post(self, request, tutor_id):
+        subject_id = request.data.get("subject")
+        slot_ids = request.data.get("slot_ids") or []
+        study_start_date = parse_date(str(request.data.get("study_start_date") or ""))
+        study_end_date = parse_date(str(request.data.get("study_end_date") or ""))
+
+        if not subject_id:
+            return Response(
+                {"subject": "Please choose a subject for this booking."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not slot_ids or not isinstance(slot_ids, list):
+            return Response(
+                {"slot_ids": "Please choose at least one schedule."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not study_start_date or not study_end_date:
+            return Response(
+                {"study_start_date": "Start date and end date are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if study_end_date < study_start_date:
+            return Response(
+                {"study_end_date": "End date must be after or equal to start date."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            tutor_subject = TutorSubject.objects.select_related(
+                "tutor", "subject"
+            ).get(tutor_id=tutor_id, subject_id=subject_id)
+        except TutorSubject.DoesNotExist:
+            return Response(
+                {"subject": "This tutor does not teach the selected subject."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        refresh_new_class_lock(tutor_subject.tutor)
+        if not can_receive_new_classes(tutor_subject.tutor):
+            return Response(
+                {
+                    "error": "Tutor cannot receive new classes because guarantee deposit is too low.",
+                    "lock_reason": tutor_subject.tutor.new_class_lock_reason,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        slots = list(
+            TeachingSlot.objects.select_for_update(of=("self",))
+            .filter(id__in=slot_ids, tutor_id=tutor_id)
+            .select_related("subject", "tutor")
+            .order_by("start_time")
+        )
+        if len(slots) != len(set(slot_ids)):
+            return Response(
+                {"slot_ids": "One or more selected schedules were not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        unavailable = [slot.id for slot in slots if slot.status != "available"]
+        if unavailable:
+            return Response(
+                {
+                    "error": "One or more schedules are no longer available.",
+                    "slot_ids": unavailable,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        selected_schedules = request.data.get("schedules") or []
+        total_amount = calculate_recurring_slots_total(
+            tutor_subject,
+            slots,
+            selected_schedules,
+            study_start_date,
+            study_end_date,
+        )
+        deposit_amount = calculate_booking_deposit(total_amount)
+        booking = Booking.objects.create(
+            student=request.user,
+            tutor=tutor_subject.tutor,
+            subject=tutor_subject.subject,
+            start_time=slots[0].start_time,
+            end_time=slots[-1].end_time,
+            study_start_date=study_start_date,
+            study_end_date=study_end_date,
+            selected_schedules=selected_schedules,
+            selected_slot_ids=[slot.id for slot in slots],
+            student_info=request.data.get("student_info") or {},
+            total_price=total_amount,
+            deposit_amount=deposit_amount,
+            notes=request.data.get("notes", ""),
+            teaching_slot=slots[0],
+            status="pending",
+        )
+        TeachingSlot.objects.filter(id__in=booking.selected_slot_ids).update(
+            status="booked"
+        )
         transaction.on_commit(lambda: send_booking_requested_email(booking))
         invalidate_cache_groups("bookings", "tutors")
 
@@ -461,9 +641,7 @@ class BookingDepositPaymentView(APIView):
                 {"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        frontend_base_url = getattr(
-            settings, "FRONTEND_BASE_URL", "http://localhost:5173"
-        ).rstrip("/")
+        frontend_base_url = get_frontend_base_url(request)
         return_url = f"{frontend_base_url}/payment/success?bookingId={pk}"
         cancel_url = (
             f"{frontend_base_url}/registration-history?payment=cancelled"

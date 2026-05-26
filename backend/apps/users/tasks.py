@@ -71,13 +71,17 @@ def send_tutor_registration_pending_email(email, full_name):
 
 
 @shared_task
-def send_tutor_registration_result_email(email, full_name, approved, reason=""):
+def send_tutor_registration_result_email(
+    email, full_name, approved, reason="", temporary_password=""
+):
     if approved:
         subject = "TutorMatch - Ho so gia su da duoc duyet"
         message = (
             f"Chao {full_name},\n\n"
             "Chuc mung! Ho so dang ky gia su cua ban da duoc phe duyet. "
             "Ban co the dang nhap va bat dau hoan thien ho so giang day tren TutorMatch.\n\n"
+            f"Mat khau tam thoi cua ban la: {temporary_password}\n"
+            "Vui long doi mat khau sau khi dang nhap de bao mat tai khoan.\n\n"
             "Tran trong,\n"
             "Doi ngu TutorMatch."
         )

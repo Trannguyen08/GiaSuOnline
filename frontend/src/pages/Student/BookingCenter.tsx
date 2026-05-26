@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Clock, CreditCard, FileText, MessageSquare, XCircle } from 'lucide-react';
+import { AlertTriangle, Clock, CreditCard, MessageSquare, XCircle } from 'lucide-react';
 import { bookingsApi } from '../../api/bookings';
 import { useToast } from '../../components/ui/Toast';
 
@@ -27,7 +27,6 @@ const BookingCenter: React.FC = () => {
   const { showToast } = useToast();
   const [bookings, setBookings] = useState<any[]>([]);
   const [cases, setCases] = useState<any[]>([]);
-  const [policies, setPolicies] = useState<any[]>([]);
   const [status, setStatus] = useState('all');
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<number | null>(null);
@@ -36,14 +35,12 @@ const BookingCenter: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [bookingData, caseData, policyData] = await Promise.all([
+      const [bookingData, caseData] = await Promise.all([
         bookingsApi.getStudentBookings(),
         bookingsApi.getSupportCases().catch(() => []),
-        bookingsApi.getPolicies().catch(() => []),
       ]);
       setBookings(bookingData);
       setCases(caseData);
-      setPolicies(policyData);
     } catch {
       showToast('Không tải được dữ liệu booking.', 'error');
     } finally {
@@ -144,7 +141,11 @@ const BookingCenter: React.FC = () => {
                       </span>
                     </div>
                     <h2 className="truncate text-lg font-extrabold text-gray-900">{booking.subject_name || 'Môn học'} với {booking.tutor_name || 'gia sư'}</h2>
-                    <p className="mt-1 text-sm font-medium text-gray-500">{new Date(booking.start_time).toLocaleString('vi-VN')}</p>
+                    <p className="mt-1 text-sm font-medium text-gray-500">
+                      {booking.study_start_date && booking.study_end_date
+                        ? `${new Date(booking.study_start_date).toLocaleDateString('vi-VN')} - ${new Date(booking.study_end_date).toLocaleDateString('vi-VN')}`
+                        : new Date(booking.start_time).toLocaleString('vi-VN')}
+                    </p>
                     {booking.notes && <p className="mt-2 text-xs font-semibold text-gray-400">{booking.notes}</p>}
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -204,22 +205,6 @@ const BookingCenter: React.FC = () => {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-indigo-50 bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-emerald-600" />
-              <h2 className="font-extrabold text-gray-900">Chính sách</h2>
-            </div>
-            <div className="space-y-3">
-              {policies.map(item => (
-                <div key={item.key} className="rounded-2xl bg-gray-50 p-4">
-                  <p className="font-bold text-gray-900">{item.label}</p>
-                  <p className="mt-1 text-sm font-semibold text-gray-500">{item.value}</p>
-                  <p className="mt-1 text-xs text-gray-400">{item.description}</p>
-                </div>
-              ))}
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Dữ liệu được admin cấu hình.</div>
-            </div>
-          </section>
         </aside>
       </div>
     </div>

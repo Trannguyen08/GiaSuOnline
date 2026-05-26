@@ -1,4 +1,4 @@
-from django.urls import include, path
+from django.urls import path
 from .booking_views import (
     AdminBookingActionView,
     AdminBookingListView,
@@ -23,6 +23,7 @@ from .views import (
     AdminDashboardStatsView,
     AdminFinanceOverviewView,
     AdminFinanceTutorActionView,
+    AdminTutorPayoutRequestActionView,
     AdminTutorListView,
     AdminTutorActionView,
     AdminUserListView,
@@ -42,6 +43,11 @@ urlpatterns = [
         "finance/tutors/<int:pk>/action/",
         AdminFinanceTutorActionView.as_view(),
         name="admin-finance-tutor-action",
+    ),
+    path(
+        "finance/payout-requests/<int:pk>/action/",
+        AdminTutorPayoutRequestActionView.as_view(),
+        name="admin-finance-payout-request-action",
     ),
     path("bookings/", AdminBookingListView.as_view(), name="admin-bookings-list"),
     path(
@@ -77,7 +83,6 @@ urlpatterns = [
         AdminTutorActionView.as_view(),
         name="admin-tutor-action",
     ),
-    path("ai-reviews/", include("apps.ai_reviews.urls")),
     path("users/", AdminUserListView.as_view(), name="admin-users-list"),
     path(
         "users/<int:pk>/action/",

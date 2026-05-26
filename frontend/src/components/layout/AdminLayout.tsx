@@ -4,7 +4,6 @@ import {
   BarChart3,
   Bell,
   BookOpen,
-  Bot,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -23,6 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../ui/Toast';
+import { clearAuth } from '../../utils/auth';
 
 const AdminLayout: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -43,7 +43,6 @@ const AdminLayout: React.FC = () => {
     { name: 'Tài chính', path: '/admin/finance', icon: CircleDollarSign },
     { name: 'Đánh giá', path: '/admin/reviews', icon: Star },
     { name: 'Vi phạm', path: '/admin/violations', icon: ShieldAlert },
-    { name: 'AI review', path: '/admin/ai-reviews', icon: Bot },
     { name: 'Báo cáo', path: '/admin/reports', icon: BarChart3 },
     { name: 'Cài đặt', path: '/admin/settings', icon: Settings },
   ];
@@ -51,9 +50,7 @@ const AdminLayout: React.FC = () => {
   const getPageTitle = () => menuItems.find(item => item.path === location.pathname)?.name || 'Admin Panel';
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+    clearAuth();
     setIsProfileOpen(false);
     showToast('Đã đăng xuất tài khoản admin.', 'success');
     navigate('/login', { replace: true });

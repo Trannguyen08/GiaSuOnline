@@ -4,10 +4,11 @@ from rest_framework import status, permissions, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum
 from django.db.models.functions import ExtractMonth
 from django.utils import timezone
 from apps.users.models import TutorProfile as UserTutorProfile
+from apps.ai_reviews.models import AIReview
 from apps.tutors.models import TutorProfile as TeachingProfile
 from apps.users.tasks import send_account_lock_email
 from apps.users.services.tutor_registration import (
@@ -20,14 +21,17 @@ from apps.tutors.models import TutorGuaranteeTransaction
 from apps.tutors.services.guarantee import (
     accrue_course_commission,
     deduct_commission_debt_from_deposit,
+    mark_payout_request_processed,
     pay_commission_debt,
     top_up_deposit,
 )
+from .models import TutorPayoutRequest
 from .serializers import (
     AdminCourseCommissionSerializer,
     AdminCourseSerializer,
     AdminFinanceTutorSerializer,
     AdminGuaranteeTransactionSerializer,
+    TutorPayoutRequestSerializer,
     AdminTutorRegistrationSerializer,
     AdminUserSerializer,
 )
@@ -288,6 +292,9 @@ class AdminFinanceOverviewView(APIView):
         due_commissions = CourseCommission.objects.select_related(
             "course", "tutor"
         ).exclude(status__in=["paid", "deducted", "waived"])[:50]
+        payout_requests = TutorPayoutRequest.objects.select_related(
+            "tutor__user", "course"
+        ).order_by("-created_at")[:100]
 
         return Response(
             {
@@ -327,6 +334,9 @@ class AdminFinanceOverviewView(APIView):
                 ).data,
                 "due_commissions": AdminCourseCommissionSerializer(
                     due_commissions, many=True
+                ).data,
+                "payout_requests": TutorPayoutRequestSerializer(
+                    payout_requests, many=True
                 ).data,
             }
         )
@@ -368,6 +378,28 @@ class AdminFinanceTutorActionView(APIView):
         return Response(AdminFinanceTutorSerializer(profile).data)
 
 
+class AdminTutorPayoutRequestActionView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            payout = mark_payout_request_processed(
+                pk,
+                request.data.get("action"),
+                admin_user=request.user,
+                admin_note=request.data.get("admin_note", ""),
+            )
+        except TutorPayoutRequest.DoesNotExist:
+            return Response(
+                {"error": "Payout request not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(TutorPayoutRequestSerializer(payout).data)
+
+
 
 # Tutor Management
 class AdminTutorListView(generics.ListAPIView):
@@ -378,7 +410,14 @@ class AdminTutorListView(generics.ListAPIView):
         queryset = (
             UserTutorProfile.objects.all()
             .select_related("user")
-            .prefetch_related("achievements")
+            .prefetch_related(
+                "achievements",
+                Prefetch(
+                    "ai_reviews",
+                    queryset=AIReview.objects.order_by("-created_at"),
+                    to_attr="prefetched_ai_reviews",
+                ),
+            )
         )
 
         status_param = self.request.query_params.get("status")

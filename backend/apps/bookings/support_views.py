@@ -7,6 +7,7 @@ from django.db.models import Q
 
 from apps.admin_portal.models import SystemSetting, ViolationCase
 from apps.bookings.models import Booking
+from apps.bookings.views import release_booking_slots
 from apps.courses.models import Course, CourseReview
 
 from .support_serializers import (
@@ -29,7 +30,7 @@ def ensure_public_policy_settings():
         (
             "booking-deposit-rate",
             "Tỷ lệ cọc booking",
-            "0.30",
+            "0.20",
             "percent",
             "Tỷ lệ cọc gợi ý cho booking mới.",
         ),
@@ -43,7 +44,7 @@ def ensure_public_policy_settings():
         (
             "tutor-commission-rate",
             "Tỷ lệ commission",
-            "0.10",
+            "0.15",
             "percent",
             "Tỷ lệ nền tảng thu khi khóa học hoàn thành.",
         ),
@@ -56,7 +57,7 @@ def ensure_public_policy_settings():
         ),
     ]
     for key, label, value, value_type, description in defaults:
-        SystemSetting.objects.get_or_create(
+        setting, created = SystemSetting.objects.get_or_create(
             key=key,
             defaults={
                 "label": label,
@@ -65,6 +66,12 @@ def ensure_public_policy_settings():
                 "description": description,
             },
         )
+        if not created and key == "booking-deposit-rate" and setting.value == "0.30":
+            setting.value = "0.20"
+            setting.save(update_fields=["value", "updated_at"])
+        if not created and key == "tutor-commission-rate" and setting.value == "0.10":
+            setting.value = "0.15"
+            setting.save(update_fields=["value", "updated_at"])
 
 
 class PublicPolicySettingsView(APIView):
@@ -114,9 +121,7 @@ class StudentBookingCancelView(APIView):
         if reason:
             booking.notes = f"{booking.notes}\n[Student cancelled] {reason}".strip()
         booking.save(update_fields=["status", "payment_status", "notes"])
-        if booking.teaching_slot:
-            booking.teaching_slot.status = "available"
-            booking.teaching_slot.save(update_fields=["status"])
+        release_booking_slots(booking)
         invalidate_cache_groups("bookings", "tutors")
         return Response({"message": "Booking cancelled successfully."})
 

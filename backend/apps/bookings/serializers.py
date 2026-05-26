@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.db.models import Q
 from rest_framework import serializers
 from .models import Booking, TutorAvailability, TeachingSlot
 from apps.users.serializers import UserSerializer
@@ -25,6 +28,11 @@ class BookingSerializer(serializers.ModelSerializer):
             "subject_name",
             "start_time",
             "end_time",
+            "study_start_date",
+            "study_end_date",
+            "selected_schedules",
+            "selected_slot_ids",
+            "student_info",
             "status",
             "total_price",
             "deposit_amount",
@@ -44,6 +52,7 @@ class BookingSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "student",
             "status",
+            "selected_slot_ids",
             "deposit_amount",
             "payment_status",
             "payos_order_code",
@@ -125,4 +134,40 @@ class TeachingSlotSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_time": "End time must be after start time."}
             )
+        if start_time and start_time.minute not in {0, 15, 30, 45}:
+            raise serializers.ValidationError(
+                {"start_time": "Start minute must be one of 00, 15, 30, 45."}
+            )
+        if end_time and end_time.minute not in {0, 15, 30, 45}:
+            raise serializers.ValidationError(
+                {"end_time": "End minute must be one of 00, 15, 30, 45."}
+            )
+
+        tutor = attrs.get("tutor", getattr(self.instance, "tutor", None))
+        request = self.context.get("request")
+        if tutor is None and request is not None:
+            tutor = getattr(request.user, "teaching_profile", None) or getattr(
+                request.user, "tutor_profile", None
+            )
+
+        if tutor and start_time and end_time:
+            buffered_start = start_time - timedelta(minutes=30)
+            buffered_end = end_time + timedelta(minutes=30)
+            conflicts = TeachingSlot.objects.filter(tutor=tutor).exclude(
+                status="cancelled"
+            )
+            if self.instance:
+                conflicts = conflicts.exclude(pk=self.instance.pk)
+            conflicts = conflicts.filter(
+                Q(start_time__lt=buffered_end) & Q(end_time__gt=buffered_start)
+            )
+            if conflicts.exists():
+                raise serializers.ValidationError(
+                    {
+                        "start_time": (
+                            "This time range overlaps another slot or is less than "
+                            "30 minutes from another slot."
+                        )
+                    }
+                )
         return attrs

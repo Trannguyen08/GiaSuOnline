@@ -21,6 +21,7 @@ from .serializers import (
     OTPVerifySerializer,
     GoogleAuthSerializer,
     UserSerializer,
+    ChangePasswordSerializer,
 )
 from .tasks import send_otp_email
 from .services.tutor_registration import register_tutor
@@ -405,3 +406,22 @@ class MeView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         serializer.save()
         return Response(serializer.data)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if not request.user.check_password(serializer.validated_data["old_password"]):
+            return Response(
+                {"old_password": "Mat khau hien tai khong dung."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        return Response({"message": "Doi mat khau thanh cong."})

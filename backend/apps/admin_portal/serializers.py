@@ -3,8 +3,8 @@ from django.contrib.auth import get_user_model
 from apps.users.models import (
     TutorProfile as UserTutorProfile,
     TutorAchievement,
-    TutorDegreeImage,
 )
+from apps.ai_reviews.models import AIReview
 from apps.tutors.models import (
     TutorGuaranteeTransaction,
     TutorProfile as TeachingProfile,
@@ -12,12 +12,14 @@ from apps.tutors.models import (
 )
 from apps.bookings.models import Booking, TeachingSlot
 from apps.courses.models import Course, CourseCommission, CourseReview
-from .models import SystemSetting, ViolationCase
+from .models import SystemSetting, TutorPayoutRequest, ViolationCase
 
 User = get_user_model()
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -25,12 +27,22 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "username",
             "email",
             "phone",
+            "avatar_url",
             "is_tutor",
             "is_active",
             "is_verified",
             "is_staff",
             "created_at",
         ]
+
+    def get_avatar_url(self, obj):
+        if not obj.avatar:
+            return ""
+        request = self.context.get("request")
+        url = obj.avatar.url
+        return (
+            request.build_absolute_uri(url) if request and url.startswith("/") else url
+        )
 
 
 class AdminTutorSubjectSerializer(serializers.ModelSerializer):
@@ -92,19 +104,25 @@ class AdminTutorAchievementSerializer(serializers.ModelSerializer):
         )
 
 
-class AdminTutorDegreeImageSerializer(serializers.ModelSerializer):
-    image_url = serializers.SerializerMethodField()
-
+class AdminAIReviewSummarySerializer(serializers.ModelSerializer):
     class Meta:
-        model = TutorDegreeImage
-        fields = ["id", "image_url", "description"]
-
-    def get_image_url(self, obj):
-        request = self.context.get("request")
-        url = obj.image.url if obj.image else ""
-        return (
-            request.build_absolute_uri(url) if request and url.startswith("/") else url
-        )
+        model = AIReview
+        fields = [
+            "id",
+            "status",
+            "pass_score",
+            "risk_level",
+            "good_points",
+            "bad_points",
+            "missing_fields",
+            "warning_flags",
+            "admin_suggestion",
+            "error_message",
+            "created_at",
+            "updated_at",
+            "reviewed_at",
+        ]
+        read_only_fields = fields
 
 
 class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
@@ -113,16 +131,16 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     registration_status = serializers.CharField(source="status", read_only=True)
     subjects = serializers.SerializerMethodField()
     experience_years = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
     id_front_url = serializers.SerializerMethodField()
     id_back_url = serializers.SerializerMethodField()
-    degree_image_url = serializers.SerializerMethodField()
-    degree_images = AdminTutorDegreeImageSerializer(many=True, read_only=True)
     achievements = AdminTutorAchievementSerializer(many=True, read_only=True)
     teaching_profile_id = serializers.SerializerMethodField()
     guarantee_deposit_balance = serializers.SerializerMethodField()
     commission_debt = serializers.SerializerMethodField()
     new_class_locked = serializers.SerializerMethodField()
     new_class_lock_reason = serializers.SerializerMethodField()
+    latest_ai_review = serializers.SerializerMethodField()
 
     class Meta:
         model = UserTutorProfile
@@ -140,10 +158,10 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
             "experience_years",
             "teaching_levels",
             "teaching_region",
+            "cccd_number",
+            "avatar_url",
             "id_front_url",
             "id_back_url",
-            "degree_image_url",
-            "degree_images",
             "achievements",
             "status",
             "registration_status",
@@ -153,6 +171,7 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
             "commission_debt",
             "new_class_locked",
             "new_class_lock_reason",
+            "latest_ai_review",
             "created_at",
         ]
 
@@ -171,8 +190,8 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     def get_id_back_url(self, obj):
         return self._file_url(obj.id_back)
 
-    def get_degree_image_url(self, obj):
-        return self._file_url(obj.degree_image)
+    def get_avatar_url(self, obj):
+        return self._file_url(getattr(obj.user, "avatar", None))
 
     def get_subjects(self, obj):
         teaching_profile = getattr(obj.user, "teaching_profile", None)
@@ -212,6 +231,17 @@ class AdminTutorRegistrationSerializer(serializers.ModelSerializer):
     def get_new_class_lock_reason(self, obj):
         teaching_profile = self._teaching_profile(obj)
         return teaching_profile.new_class_lock_reason if teaching_profile else ""
+
+    def get_latest_ai_review(self, obj):
+        prefetched_reviews = getattr(obj, "prefetched_ai_reviews", None)
+        review = (
+            prefetched_reviews[0]
+            if prefetched_reviews
+            else obj.ai_reviews.order_by("-created_at").first()
+        )
+        if not review:
+            return None
+        return AdminAIReviewSummarySerializer(review).data
 
 
 class AdminCourseSerializer(serializers.ModelSerializer):
@@ -351,6 +381,36 @@ class AdminGuaranteeTransactionSerializer(serializers.ModelSerializer):
         ]
 
 
+class TutorPayoutRequestSerializer(serializers.ModelSerializer):
+    tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="tutor.user.email", read_only=True)
+    course_title = serializers.CharField(source="course.title", read_only=True)
+
+    class Meta:
+        model = TutorPayoutRequest
+        fields = [
+            "id",
+            "tutor",
+            "tutor_name",
+            "tutor_email",
+            "course",
+            "course_title",
+            "request_type",
+            "amount",
+            "bank_info",
+            "qr_code_url",
+            "note",
+            "admin_note",
+            "status",
+            "created_by",
+            "processed_by",
+            "processed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
 class AdminBookingSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     student_email = serializers.EmailField(source="student.email", read_only=True)
@@ -373,6 +433,11 @@ class AdminBookingSerializer(serializers.ModelSerializer):
             "subject_name",
             "start_time",
             "end_time",
+            "study_start_date",
+            "study_end_date",
+            "selected_schedules",
+            "selected_slot_ids",
+            "student_info",
             "status",
             "total_price",
             "deposit_amount",

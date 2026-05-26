@@ -23,6 +23,13 @@ class Course(models.Model):
         TutorProfile, on_delete=models.CASCADE, related_name="teaching_courses"
     )
     subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True)
+    booking = models.OneToOneField(
+        "bookings.Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="course",
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     total_sessions = models.PositiveIntegerField(default=0)  # Tổng số buổi

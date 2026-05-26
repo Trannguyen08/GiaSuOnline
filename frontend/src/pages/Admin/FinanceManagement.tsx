@@ -3,6 +3,7 @@ import { Banknote, CircleDollarSign, CreditCard, Lock, Search, WalletCards } fro
 import { useAdminStore } from '../../store/useAdminStore';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { useToast } from '../../components/ui/Toast';
+import { adminApi } from '../../api/admin';
 
 const currentYear = new Date().getFullYear();
 const years = Array.from({ length: 5 }, (_, index) => currentYear - index);
@@ -12,6 +13,8 @@ const transactionLabels: Record<string, string> = {
   commission_accrual: 'Ghi nhận commission',
   commission_payment: 'Thanh toán commission',
   deposit_deduction: 'Trừ cọc',
+  deposit_refund: 'Hoàn cọc',
+  deposit_release: 'Trả cọc còn lại',
 };
 
 const normalizeText = (value: string) =>
@@ -74,6 +77,16 @@ const AdminFinanceManagement: React.FC = () => {
       setNote('');
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Không thể xử lý giao dịch.', 'error');
+    }
+  };
+
+  const handlePayoutAction = async (id: number, action: 'approve' | 'reject' | 'paid') => {
+    try {
+      await adminApi.payoutRequestAction(id, action, { admin_note: note });
+      await fetchFinance(params);
+      showToast('Đã cập nhật yêu cầu thanh toán.', 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.error || 'Không thể xử lý yêu cầu.', 'error');
     }
   };
 
@@ -173,6 +186,44 @@ const AdminFinanceManagement: React.FC = () => {
         </section>
 
         <section className="space-y-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-base font-black text-slate-900">Yêu cầu chuyển tiền</h2>
+            <div className="mt-4 space-y-3">
+              {(finance?.payout_requests || []).slice(0, 8).map((item: any) => (
+                <div key={item.id} className="rounded-xl bg-slate-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-black text-slate-900">{item.tutor_name || 'Gia sư'}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {item.request_type === 'platform_exit' ? 'Rút khỏi nền tảng' : 'Nhận phần cọc còn lại'}
+                      </p>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-400">{item.course_title || item.bank_info || 'Không có khóa học'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-emerald-700">{formatCurrency(Number(item.amount || 0))}</p>
+                      <span className="mt-1 inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-indigo-700">{item.status}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.status === 'pending' && (
+                      <>
+                        <button onClick={() => handlePayoutAction(item.id, 'approve')} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white">Duyệt</button>
+                        <button onClick={() => handlePayoutAction(item.id, 'reject')} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700">Từ chối</button>
+                      </>
+                    )}
+                    {['pending', 'approved'].includes(item.status) && (
+                      <button onClick={() => handlePayoutAction(item.id, 'paid')} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white">Đã chuyển</button>
+                    )}
+                    {item.qr_code_url && <a href={item.qr_code_url} target="_blank" rel="noreferrer" className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">Mở QR</a>}
+                  </div>
+                </div>
+              ))}
+              {(finance?.payout_requests || []).length === 0 && (
+                <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400">Chưa có yêu cầu chuyển tiền.</p>
+              )}
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-black text-slate-900">Giao dịch gần đây</h2>
             <div className="mt-4 space-y-3">

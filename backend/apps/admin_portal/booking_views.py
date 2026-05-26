@@ -5,6 +5,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.bookings.models import Booking, TeachingSlot
+from apps.bookings.views import release_booking_slots
 
 from .serializers import AdminBookingSerializer, AdminTeachingSlotSerializer
 from .views import IsAdminUser, money_sum, selected_month
@@ -65,9 +66,8 @@ class AdminBookingActionView(APIView):
 
         if action in status_actions:
             booking.status = action
-            if action == "cancelled" and booking.teaching_slot:
-                booking.teaching_slot.status = "available"
-                booking.teaching_slot.save(update_fields=["status"])
+            if action == "cancelled":
+                release_booking_slots(booking)
             if action in ["confirmed", "completed"] and booking.teaching_slot:
                 booking.teaching_slot.status = "booked"
                 booking.teaching_slot.save(update_fields=["status"])

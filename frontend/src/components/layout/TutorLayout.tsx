@@ -1,20 +1,32 @@
 import React from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   CalendarDays,
   GraduationCap,
   LayoutDashboard,
   LifeBuoy,
+  LogOut,
   MessageCircle,
   Settings,
   Star,
   Users,
   Wallet,
 } from 'lucide-react';
+import { useToast } from '../ui/Toast';
+import { clearAuth, getStoredUser } from '../../utils/auth';
 
 const TutorLayout: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const user = getStoredUser();
+
+  const handleLogout = () => {
+    clearAuth();
+    showToast('Đã đăng xuất tài khoản gia sư.', 'success');
+    navigate('/login', { replace: true });
+  };
 
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/tutor/dashboard' },
@@ -63,10 +75,17 @@ const TutorLayout: React.FC = () => {
           <div className="text-xl font-bold text-[#5a5ce6]">TutorMatch</div>
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <div className="text-sm font-bold text-gray-900">Tutor Account</div>
+              <div className="text-sm font-bold text-gray-900">{user?.username || 'Tutor Account'}</div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Online tutor</div>
             </div>
-            <img src="https://i.pravatar.cc/150?u=tutor" alt="avatar" className="h-10 w-10 rounded-xl border border-indigo-50 object-cover" />
+            <img src={user?.avatar || 'https://i.pravatar.cc/150?u=tutor'} alt="avatar" className="h-10 w-10 rounded-xl border border-indigo-50 object-cover" />
+            <button
+              onClick={handleLogout}
+              className="rounded-xl bg-rose-50 p-3 text-rose-600 transition-colors hover:bg-rose-100"
+              title="Đăng xuất"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </header>
 

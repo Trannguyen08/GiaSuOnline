@@ -22,7 +22,7 @@ def get_required_deposit():
 
 
 def get_commission_rate():
-    return Decimal(str(getattr(settings, "TUTOR_COMMISSION_RATE", "0.10")))
+    return Decimal(str(getattr(settings, "TUTOR_COMMISSION_RATE", "0.15")))
 
 
 def get_commission_due_at():
@@ -97,7 +97,7 @@ def top_up_deposit(tutor_id, amount, *, note=""):
 
 @transaction.atomic
 def accrue_course_commission(course):
-    course = course.__class__.objects.select_related("tutor").get(pk=course.pk)
+    course = course.__class__.objects.select_related("tutor", "booking").get(pk=course.pk)
     existing = getattr(course, "commission", None)
     if existing:
         return existing
@@ -106,6 +106,9 @@ def accrue_course_commission(course):
     gross_amount = calculate_course_gross_amount(course)
     rate = get_commission_rate()
     commission_amount = money(gross_amount * rate)
+    booking = getattr(course, "booking", None)
+    deposit_amount = money(getattr(booking, "deposit_amount", 0) or 0)
+    covered_by_booking_deposit = deposit_amount >= commission_amount
 
     commission = CourseCommission.objects.create(
         course=course,
@@ -113,18 +116,92 @@ def accrue_course_commission(course):
         gross_amount=gross_amount,
         commission_rate=rate,
         commission_amount=commission_amount,
+        deducted_amount=commission_amount if covered_by_booking_deposit else MONEY_ZERO,
+        status="deducted" if covered_by_booking_deposit else "due",
         due_at=get_commission_due_at(),
+        settled_at=timezone.now() if covered_by_booking_deposit else None,
     )
-    tutor.commission_debt = money(tutor.commission_debt + commission_amount)
-    tutor.save(update_fields=["commission_debt"])
+    if not covered_by_booking_deposit:
+        tutor.commission_debt = money(tutor.commission_debt + commission_amount)
+        tutor.save(update_fields=["commission_debt"])
     record_transaction(
         tutor,
         "commission_accrual",
         commission_amount,
         course=course,
-        note="Commission accrued after course completion.",
+        note=(
+            "Commission deducted from booking deposit after course completion."
+            if covered_by_booking_deposit
+            else "Commission accrued after course completion."
+        ),
     )
     return commission
+
+
+def get_course_deposit_release_amount(course):
+    commission = getattr(course, "commission", None) or accrue_course_commission(course)
+    booking = getattr(course, "booking", None)
+    if not booking:
+        return MONEY_ZERO
+    return money(max(money(booking.deposit_amount) - commission.commission_amount, MONEY_ZERO))
+
+
+@transaction.atomic
+def mark_payout_request_processed(request_id, action, *, admin_user=None, admin_note=""):
+    from apps.admin_portal.models import TutorPayoutRequest
+
+    payout = (
+        TutorPayoutRequest.objects.select_for_update()
+        .select_related("tutor", "course")
+        .get(pk=request_id)
+    )
+    if payout.status not in ["pending", "approved"]:
+        raise ValueError("Request has already been processed.")
+    if action not in ["approve", "reject", "paid"]:
+        raise ValueError("Invalid payout action.")
+
+    payout.admin_note = admin_note
+    payout.processed_by = admin_user
+    payout.processed_at = timezone.now()
+    if action == "reject":
+        payout.status = "rejected"
+    elif action == "approve":
+        payout.status = "approved"
+    else:
+        payout.status = "paid"
+        tutor = TutorProfile.objects.select_for_update().get(pk=payout.tutor_id)
+        if payout.request_type == "platform_exit":
+            refund_amount = min(money(payout.amount), money(tutor.guarantee_deposit_balance))
+            tutor.guarantee_deposit_balance = money(
+                tutor.guarantee_deposit_balance - refund_amount
+            )
+            tutor.is_available = False
+            tutor.save(update_fields=["guarantee_deposit_balance", "is_available"])
+            refresh_new_class_lock(tutor)
+            record_transaction(
+                tutor,
+                "deposit_refund",
+                refund_amount,
+                note=admin_note or "Platform exit guarantee deposit refund.",
+            )
+        elif payout.request_type == "course_deposit_release":
+            record_transaction(
+                tutor,
+                "deposit_release",
+                payout.amount,
+                course=payout.course,
+                note=admin_note or "Released remaining booking deposit to tutor.",
+            )
+    payout.save(
+        update_fields=[
+            "status",
+            "admin_note",
+            "processed_by",
+            "processed_at",
+            "updated_at",
+        ]
+    )
+    return payout
 
 
 def _allocate_commission_settlement(tutor, amount, field_name, settled_status):
