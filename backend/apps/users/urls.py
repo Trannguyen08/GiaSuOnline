@@ -10,6 +10,7 @@ from .views import (
     GoogleLoginView,
     LogoutView,
     MeView,
+    ChangePasswordView,
 )
 
 urlpatterns = [
@@ -26,4 +27,5 @@ urlpatterns = [
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     # Current user
     path("me/", MeView.as_view(), name="auth-me"),
+    path("change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
 ]

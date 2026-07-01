@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { clearAuth, getStoredUser } from '../../../utils/auth';
 
 const Header: React.FC = () => {
   const [user, setUser] = useState<any>(null);
@@ -8,22 +9,26 @@ const Header: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    } else {
-      setUser(null);
-    }
-  }, [location]); // Re-check on every navigation
+    const syncUser = () => setUser(getStoredUser());
+    syncUser();
+    window.addEventListener('auth-changed', syncUser);
+    window.addEventListener('storage', syncUser);
+    return () => {
+      window.removeEventListener('auth-changed', syncUser);
+      window.removeEventListener('storage', syncUser);
+    };
+  }, [location]);
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+    clearAuth();
     setUser(null);
     setIsDropdownOpen(false);
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
+
+  const roleLabel = user?.is_staff || user?.is_superuser ? 'Quản trị viên' : user?.is_tutor ? 'Gia sư' : 'Học viên';
+  const portalPath = user?.is_staff || user?.is_superuser ? '/admin/dashboard' : user?.is_tutor ? '/tutor/dashboard' : '/my-courses';
+  const portalLabel = user?.is_staff || user?.is_superuser ? 'Vào trang admin' : user?.is_tutor ? 'Vào trang gia sư' : 'Khóa học của tôi';
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-sm">
@@ -53,6 +58,17 @@ const Header: React.FC = () => {
               }`}></span>
             </Link>
           ))}
+          <Link
+            to="/registration-history"
+            className={`text-[14px] font-bold transition-all relative group ${
+              location.pathname === '/registration-history' ? 'text-[#5a5ce6]' : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            Lịch sử đăng ký
+            <span className={`absolute -bottom-1 left-0 h-0.5 bg-[#5a5ce6] transition-all duration-300 rounded-sm ${
+              location.pathname === '/registration-history' ? 'w-full' : 'w-0 group-hover:w-full'
+            }`}></span>
+          </Link>
         </nav>
 
         {/* Auth / User Section */}
@@ -80,7 +96,7 @@ const Header: React.FC = () => {
                   </div>
                   <div className="hidden sm:block text-left">
                     <div className="text-xs font-bold text-gray-900 leading-none mb-0.5">Chào, {user.first_name || user.username}</div>
-                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Học viên</div>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{roleLabel}</div>
                   </div>
                   <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
                 </button>
@@ -99,12 +115,12 @@ const Header: React.FC = () => {
                         Hồ sơ cá nhân
                       </Link>
                       <Link 
-                        to="/my-courses" 
+                        to={portalPath}
                         onClick={() => setIsDropdownOpen(false)}
                         className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-600 hover:text-[#5a5ce6] hover:bg-indigo-50 transition-all"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                        Khóa học của tôi
+                        {portalLabel}
                       </Link>
                       <div className="h-px bg-gray-50 my-1 mx-2"></div>
                       <button 

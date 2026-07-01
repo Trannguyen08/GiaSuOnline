@@ -1,6 +1,10 @@
+from decimal import Decimal
+
 from rest_framework import serializers
+from django.utils.text import slugify
 from .models import (
     TutorProfile,
+    TutorGuaranteeTransaction,
     Subject,
     TutorSubject,
     TutorEducation,
@@ -8,7 +12,7 @@ from .models import (
     TutorFAQ,
     TutorDocument,
 )
-from apps.users.models import TutorAchievement, TutorDegreeImage
+from apps.users.models import TutorAchievement
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -18,11 +22,48 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 
 class TutorSubjectSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), required=False
+    )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_input = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = TutorSubject
-        fields = ["id", "subject", "subject_name", "level", "hourly_rate"]
+        fields = [
+            "id",
+            "subject",
+            "subject_name",
+            "subject_input",
+            "level",
+            "hourly_rate",
+            "is_active",
+        ]
+
+
+def unique_subject_slug(name):
+    base = slugify(name) or "subject"
+    slug = base
+    suffix = 2
+    while Subject.objects.filter(slug=slug).exists():
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
+
+
+def get_or_create_subject_by_name(name):
+    clean_name = " ".join((name or "").split())
+    if not clean_name:
+        return None
+    existing = Subject.objects.filter(name__iexact=clean_name).first()
+    if existing:
+        return existing
+    return Subject.objects.create(
+        name=clean_name,
+        slug=unique_subject_slug(clean_name),
+        category="Tự nhập",
+    )
 
 
 class TutorEducationSerializer(serializers.ModelSerializer):
@@ -78,23 +119,6 @@ class TutorAchievementSerializer(serializers.ModelSerializer):
         )
 
 
-class TutorDegreeImageSerializer(serializers.ModelSerializer):
-    image_url = serializers.SerializerMethodField()
-
-    class Meta:
-        model = TutorDegreeImage
-        fields = ["id", "image_url", "description"]
-
-    def get_image_url(self, obj):
-        if not obj.image:
-            return ""
-        request = self.context.get("request")
-        url = obj.image.url
-        return (
-            request.build_absolute_uri(url) if request and url.startswith("/") else url
-        )
-
-
 class TutorProfileSerializer(serializers.ModelSerializer):
     tutor_subjects = TutorSubjectSerializer(many=True, required=False)
     educations = TutorEducationSerializer(many=True, required=False)
@@ -102,15 +126,20 @@ class TutorProfileSerializer(serializers.ModelSerializer):
     faqs = TutorFAQSerializer(many=True, required=False)
     documents = TutorDocumentSerializer(many=True, required=False)
     achievements = serializers.SerializerMethodField()
-    degree_images = serializers.SerializerMethodField()
-    degree_image_url = serializers.SerializerMethodField()
     university = serializers.SerializerMethodField()
     qualification = serializers.SerializerMethodField()
     address = serializers.SerializerMethodField()
     teaching_levels = serializers.SerializerMethodField()
     teaching_region = serializers.SerializerMethodField()
+    birthday = serializers.SerializerMethodField()
+    cccd_number = serializers.SerializerMethodField()
+    subjects_text = serializers.SerializerMethodField()
+    id_front_url = serializers.SerializerMethodField()
+    id_back_url = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     email = serializers.EmailField(source="user.email", read_only=True)
+    phone = serializers.CharField(source="user.phone", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     avatar = serializers.ImageField(source="user.avatar", read_only=True)
 
@@ -120,7 +149,9 @@ class TutorProfileSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "email",
+            "phone",
             "avatar",
+            "avatar_url",
             "full_name",
             "title",
             "bio",
@@ -132,29 +163,44 @@ class TutorProfileSerializer(serializers.ModelSerializer):
             "rating_avg",
             "total_reviews",
             "is_available",
+            "guarantee_deposit_balance",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
             "location",
             "teaching_mode",
             "documents",
             "achievements",
-            "degree_images",
-            "degree_image_url",
             "university",
             "qualification",
             "address",
+            "birthday",
+            "cccd_number",
+            "subjects_text",
             "teaching_levels",
             "teaching_region",
+            "id_front_url",
+            "id_back_url",
         ]
         read_only_fields = [
             "rating_avg",
             "total_reviews",
+            "guarantee_deposit_balance",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
             "achievements",
-            "degree_images",
-            "degree_image_url",
             "university",
             "qualification",
             "address",
+            "birthday",
+            "cccd_number",
+            "subjects_text",
             "teaching_levels",
             "teaching_region",
+            "id_front_url",
+            "id_back_url",
+            "avatar_url",
         ]
 
     def _registration_profile(self, obj):
@@ -168,10 +214,6 @@ class TutorProfileSerializer(serializers.ModelSerializer):
         return (
             request.build_absolute_uri(url) if request and url.startswith("/") else url
         )
-
-    def get_degree_image_url(self, obj):
-        registration = self._registration_profile(obj)
-        return self._file_url(registration.degree_image) if registration else ""
 
     def get_university(self, obj):
         registration = self._registration_profile(obj)
@@ -193,6 +235,29 @@ class TutorProfileSerializer(serializers.ModelSerializer):
         registration = self._registration_profile(obj)
         return registration.teaching_region if registration else obj.location
 
+    def get_birthday(self, obj):
+        registration = self._registration_profile(obj)
+        return registration.birthday if registration else None
+
+    def get_cccd_number(self, obj):
+        registration = self._registration_profile(obj)
+        return registration.cccd_number if registration else ""
+
+    def get_subjects_text(self, obj):
+        registration = self._registration_profile(obj)
+        return registration.subjects_text if registration else ""
+
+    def get_id_front_url(self, obj):
+        registration = self._registration_profile(obj)
+        return self._file_url(registration.id_front) if registration else ""
+
+    def get_id_back_url(self, obj):
+        registration = self._registration_profile(obj)
+        return self._file_url(registration.id_back) if registration else ""
+
+    def get_avatar_url(self, obj):
+        return self._file_url(obj.user.avatar)
+
     def get_achievements(self, obj):
         registration = self._registration_profile(obj)
         if not registration:
@@ -202,25 +267,6 @@ class TutorProfileSerializer(serializers.ModelSerializer):
             many=True,
             context=self.context,
         ).data
-
-    def get_degree_images(self, obj):
-        registration = self._registration_profile(obj)
-        if not registration:
-            return []
-        images = registration.degree_images.all()
-        if images.exists():
-            return TutorDegreeImageSerializer(
-                images, many=True, context=self.context
-            ).data
-        if registration.degree_image:
-            return [
-                {
-                    "id": None,
-                    "image_url": self._file_url(registration.degree_image),
-                    "description": "",
-                }
-            ]
-        return []
 
     def update(self, instance, validated_data):
         # Handle nested data
@@ -235,11 +281,37 @@ class TutorProfileSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
 
-        # Update TutorSubjects
         if tutor_subjects_data is not None:
-            instance.tutor_subjects.all().delete()
+            seen_subject_names = set()
             for item in tutor_subjects_data:
-                TutorSubject.objects.create(tutor=instance, **item)
+                subject_obj = item.get("subject")
+                if not subject_obj:
+                    subject_obj = get_or_create_subject_by_name(item.get("subject_input", ""))
+                if not subject_obj:
+                    continue
+                normalized_name = subject_obj.name.strip().lower()
+                if normalized_name in seen_subject_names:
+                    raise serializers.ValidationError(
+                        {"tutor_subjects": "Tên môn không được trùng nhau."}
+                    )
+                seen_subject_names.add(normalized_name)
+                item_id = item.get("id")
+                defaults = {
+                    "subject": subject_obj,
+                    "level": item.get("level", ""),
+                    "hourly_rate": item.get("hourly_rate", 0),
+                    "is_active": item.get("is_active", True),
+                }
+                if item_id:
+                    TutorSubject.objects.filter(id=item_id, tutor=instance).update(
+                        **defaults
+                    )
+                else:
+                    TutorSubject.objects.update_or_create(
+                        tutor=instance,
+                        subject=subject_obj,
+                        defaults=defaults,
+                    )
 
         # Update Educations
         if educations_data is not None:
@@ -265,3 +337,71 @@ class TutorProfileSerializer(serializers.ModelSerializer):
                 TutorDocument.objects.create(tutor=instance, **item)
 
         return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self.context.get("include_inactive_subjects"):
+            data["tutor_subjects"] = [
+                item
+                for item in data.get("tutor_subjects", [])
+                if item.get("is_active") is not False
+            ]
+        return data
+
+
+class TutorGuaranteeTransactionSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source="course.title", read_only=True)
+
+    class Meta:
+        model = TutorGuaranteeTransaction
+        fields = [
+            "id",
+            "transaction_type",
+            "amount",
+            "balance_after",
+            "debt_after",
+            "course",
+            "course_title",
+            "note",
+            "created_at",
+        ]
+
+
+class TutorGuaranteeStatusSerializer(serializers.ModelSerializer):
+    required_deposit = serializers.SerializerMethodField()
+    can_receive_new_classes = serializers.SerializerMethodField()
+    recent_transactions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TutorProfile
+        fields = [
+            "id",
+            "guarantee_deposit_balance",
+            "required_deposit",
+            "commission_debt",
+            "new_class_locked",
+            "new_class_lock_reason",
+            "can_receive_new_classes",
+            "recent_transactions",
+        ]
+
+    def get_required_deposit(self, obj):
+        from .services.guarantee import get_required_deposit
+
+        return get_required_deposit()
+
+    def get_can_receive_new_classes(self, obj):
+        from .services.guarantee import can_receive_new_classes
+
+        return can_receive_new_classes(obj)
+
+    def get_recent_transactions(self, obj):
+        transactions = obj.guarantee_transactions.select_related("course").all()[:20]
+        return TutorGuaranteeTransactionSerializer(transactions, many=True).data
+
+
+class MoneyAmountSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+    note = serializers.CharField(required=False, allow_blank=True)

@@ -6,9 +6,17 @@ from apps.tutors.models import TutorProfile, Subject
 class Booking(models.Model):
     STATUS_CHOICES = [
         ("pending", "Pending"),
+        ("approved", "Approved"),
         ("confirmed", "Confirmed"),
         ("cancelled", "Cancelled"),
         ("completed", "Completed"),
+    ]
+    PAYMENT_STATUS_CHOICES = [
+        ("unpaid", "Unpaid"),
+        ("pending", "Pending"),
+        ("paid", "Paid"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
     ]
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -21,8 +29,21 @@ class Booking(models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
+    study_start_date = models.DateField(null=True, blank=True)
+    study_end_date = models.DateField(null=True, blank=True)
+    selected_schedules = models.JSONField(default=list, blank=True)
+    selected_slot_ids = models.JSONField(default=list, blank=True)
+    student_info = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payment_status = models.CharField(
+        max_length=20, choices=PAYMENT_STATUS_CHOICES, default="unpaid"
+    )
+    payos_order_code = models.BigIntegerField(null=True, blank=True, unique=True)
+    payos_payment_link_id = models.CharField(max_length=100, blank=True)
+    payment_checkout_url = models.URLField(max_length=1000, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
     teaching_slot = models.OneToOneField(
         "TeachingSlot",
@@ -82,12 +103,22 @@ class TeachingSlot(models.Model):
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="available"
     )
+    confirmed_booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="confirmed_teaching_slots",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["start_time"]
         indexes = [
-            models.Index(fields=["tutor", "status", "start_time"]),
+            models.Index(
+                fields=["tutor", "status", "start_time"],
+                name="bookings_te_tutor_i_0dde58_idx",
+            ),
         ]
 
     def __str__(self):

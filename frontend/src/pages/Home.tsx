@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CalendarDays, GraduationCap, Search, Star, Users } from 'lucide-react';
-import api from '../api/client';
+import { publicClient } from '../api/client';
 import { bookingsApi } from '../api/bookings';
 
 const Home: React.FC = () => {
@@ -15,8 +15,8 @@ const Home: React.FC = () => {
     const load = async () => {
       try {
         const [tutorRes, subjectRes] = await Promise.all([
-          api.get('/tutors/public/', { params: { sort: 'rating_desc' } }),
-          api.get('/tutors/subjects/'),
+          publicClient.get('/tutors/public/', { params: { sort: 'rating_desc' } }),
+          publicClient.get('/tutors/subjects/'),
         ]);
         const tutorData = tutorRes.data || [];
         setTutors(tutorData);

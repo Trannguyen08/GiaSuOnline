@@ -1,11 +1,14 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.text import slugify
+import re
+import secrets
+import string
 
 from apps.tutors.models import Subject, TutorProfile as TeachingProfile, TutorSubject
 from apps.ai_reviews.review_runner import create_pending_review_for_tutor
 
-from ..models import TutorAchievement, TutorDegreeImage, TutorProfile
+from ..models import TutorAchievement, TutorProfile
 from ..tasks import (
     send_tutor_registration_pending_email,
     send_tutor_registration_result_email,
@@ -13,6 +16,9 @@ from ..tasks import (
 
 User = get_user_model()
 MAX_TUTOR_BIO_LENGTH = 1000
+DEFAULT_TUTOR_HOURLY_RATE = 70000
+CCCD_PATTERN = re.compile(r"^\d{12}$")
+TEMP_PASSWORD_ALPHABET = string.ascii_letters + string.digits
 
 
 def _unique_username(email):
@@ -29,28 +35,30 @@ def _unique_username(email):
 
 def register_tutor(data, files):
     email = data.get("email")
-    password = data.get("password")
     bio = (data.get("bio") or "").strip()
+    cccd_number = re.sub(r"\s+", "", data.get("cccd_number") or "")
+    has_valid_cccd_number = bool(CCCD_PATTERN.fullmatch(cccd_number))
+    try:
+        experience_years = int(data.get("experience_years") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("So nam kinh nghiem phai la so tu 0 den 30.")
+    if experience_years < 0 or experience_years > 30:
+        raise ValueError("So nam kinh nghiem phai nam trong khoang 0 den 30.")
+
     required_fields = [
         "full_name",
         "phone",
         "email",
         "university",
         "qualification",
-        "password",
         "address",
         "subjects_text",
         "teaching_region",
     ]
     missing_fields = [field for field in required_fields if not data.get(field)]
-    degree_files = files.getlist("degrees") or (
-        [files.get("degree")] if files.get("degree") else []
-    )
     missing_files = [
         field for field in ["avatar", "id_front", "id_back"] if not files.get(field)
     ]
-    if not degree_files:
-        missing_files.append("degrees")
     teaching_levels = (
         data.getlist("teaching_levels")
         if hasattr(data, "getlist")
@@ -64,21 +72,24 @@ def register_tutor(data, files):
             f"Mo ta ban than khong duoc vuot qua {MAX_TUTOR_BIO_LENGTH} ky tu."
         )
 
+    if cccd_number and not has_valid_cccd_number:
+        raise ValueError("So CCCD phai gom dung 12 chu so.")
+
     if missing_fields or missing_files:
         missing = ", ".join(missing_fields + missing_files)
         raise ValueError(f"Thieu thong tin bat buoc: {missing}.")
 
-    if data.get("password_confirm") and data.get("password_confirm") != password:
-        raise ValueError("Mat khau xac nhan khong khop.")
-
     if User.objects.filter(email=email).exists():
         raise ValueError("Email nay da duoc dang ky.")
+
+    if cccd_number and TutorProfile.objects.filter(cccd_number=cccd_number).exists():
+        raise ValueError("So CCCD nay da duoc su dung.")
 
     with transaction.atomic():
         user = User.objects.create_user(
             username=_unique_username(email),
             email=email,
-            password=password,
+            password=None,
             phone=data.get("phone", ""),
             is_tutor=True,
             is_active=True,
@@ -97,17 +108,14 @@ def register_tutor(data, files):
             bio=bio,
             address=data.get("address"),
             subjects_text=data.get("subjects_text", ""),
-            experience_years=int(data.get("experience_years") or 0),
+            experience_years=experience_years,
             teaching_levels=teaching_levels,
             teaching_region=data.get("teaching_region", ""),
+            cccd_number=cccd_number or None,
             id_front=files.get("id_front"),
             id_back=files.get("id_back"),
-            degree_image=degree_files[0],
             status="PENDING",
         )
-
-        for file in degree_files:
-            TutorDegreeImage.objects.create(tutor=profile, image=file)
 
         for file in files.getlist("achievements"):
             TutorAchievement.objects.create(tutor=profile, image=file)
@@ -122,6 +130,10 @@ def register_tutor(data, files):
     return profile
 
 
+def generate_temporary_password(length=8):
+    return "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(length))
+
+
 def _subject_names(subjects_text):
     names = []
     for raw in subjects_text.replace(";", ",").replace("\n", ",").split(","):
@@ -132,9 +144,11 @@ def _subject_names(subjects_text):
 
 
 def approve_tutor_registration(profile):
+    temporary_password = generate_temporary_password()
     profile.status = "APPROVED"
     profile.user.is_verified = True
-    profile.user.save(update_fields=["is_verified"])
+    profile.user.set_password(temporary_password)
+    profile.user.save(update_fields=["is_verified", "password"])
     profile.save(update_fields=["status"])
 
     teaching_profile, _ = TeachingProfile.objects.get_or_create(
@@ -166,11 +180,15 @@ def approve_tutor_registration(profile):
         TutorSubject.objects.get_or_create(
             tutor=teaching_profile,
             subject=subject,
-            defaults={"level": level, "hourly_rate": 0},
+            defaults={
+                "level": level,
+                "hourly_rate": DEFAULT_TUTOR_HOURLY_RATE,
+                "is_active": True,
+            },
         )
 
     send_tutor_registration_result_email.delay(
-        profile.user.email, profile.full_name, True
+        profile.user.email, profile.full_name, True, "", temporary_password
     )
     return profile
 

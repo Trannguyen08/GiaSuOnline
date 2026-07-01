@@ -7,10 +7,26 @@ from .views import (
     TutorTeachingSlotDetailView,
     PublicTutorSlotListView,
     StudentBookSlotView,
+    StudentCreateBookingView,
+    StudentBookingHistoryView,
+    TutorBookingDecisionView,
+    BookingDepositPaymentView,
+    BookingPaymentVerifyView,
+)
+from .support_views import (
+    PublicPolicySettingsView,
+    StudentBookingCancelView,
+    TutorReviewDisputeView,
+    UserViolationCaseListCreateView,
 )
 
 urlpatterns = [
     path("tutor/bookings/", TutorBookingsView.as_view(), name="tutor-bookings"),
+    path(
+        "tutor/bookings/<int:pk>/decision/",
+        TutorBookingDecisionView.as_view(),
+        name="tutor-booking-decision",
+    ),
     path(
         "tutor/availability/",
         TutorAvailabilityView.as_view(),
@@ -36,5 +52,41 @@ urlpatterns = [
         "student/slots/<int:slot_id>/book/",
         StudentBookSlotView.as_view(),
         name="student-book-slot",
+    ),
+    path(
+        "student/tutors/<int:tutor_id>/book/",
+        StudentCreateBookingView.as_view(),
+        name="student-create-booking",
+    ),
+    path(
+        "student/bookings/",
+        StudentBookingHistoryView.as_view(),
+        name="student-booking-history",
+    ),
+    path(
+        "student/bookings/<int:pk>/deposit/",
+        BookingDepositPaymentView.as_view(),
+        name="booking-deposit-payment",
+    ),
+    path(
+        "student/bookings/<int:pk>/cancel/",
+        StudentBookingCancelView.as_view(),
+        name="student-booking-cancel",
+    ),
+    path(
+        "student/payments/verify/",
+        BookingPaymentVerifyView.as_view(),
+        name="booking-payment-verify",
+    ),
+    path("policies/", PublicPolicySettingsView.as_view(), name="booking-policies"),
+    path(
+        "support/cases/",
+        UserViolationCaseListCreateView.as_view(),
+        name="user-support-cases",
+    ),
+    path(
+        "tutor/reviews/<int:pk>/dispute/",
+        TutorReviewDisputeView.as_view(),
+        name="tutor-review-dispute",
     ),
 ]

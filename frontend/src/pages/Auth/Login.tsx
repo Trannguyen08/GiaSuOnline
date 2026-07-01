@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import client from '../../api/client';
 import { useToast } from '../../components/ui/Toast';
+import { clearAuth, saveAuth } from '../../utils/auth';
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -26,11 +27,9 @@ const Login: React.FC = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      clearAuth();
       const res = await client.post('auth/login/', { email, password });
-      
-      localStorage.setItem('access_token', res.data.access);
-      localStorage.setItem('refresh_token', res.data.refresh);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      saveAuth(res.data);
       
       showToast('Đăng nhập thành công!', 'success');
       redirectByRole(res.data.user);
@@ -42,13 +41,11 @@ const Login: React.FC = () => {
 
   const handleGoogleSuccess = async (credentialResponse: any) => {
     try {
+      clearAuth();
       const res = await client.post('auth/google/', {
         id_token: credentialResponse.credential
       });
-      
-      localStorage.setItem('access_token', res.data.access);
-      localStorage.setItem('refresh_token', res.data.refresh);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      saveAuth(res.data);
       
       showToast('Đăng nhập thành công!', 'success');
       redirectByRole(res.data.user);

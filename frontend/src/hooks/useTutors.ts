@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import api from '../api/client';
+import { publicClient } from '../api/client';
 
 export const useTutors = () => {
   const [tutors, setTutors] = useState<any[]>([]);
@@ -9,7 +9,7 @@ export const useTutors = () => {
   const fetchTutors = useCallback(async (filters = {}) => {
     setLoading(true);
     try {
-      const res = await api.get('/tutors/public/', { params: filters });
+      const res = await publicClient.get('/tutors/public/', { params: filters });
       setTutors(res.data);
       setError(null);
     } catch (err: any) {
@@ -28,7 +28,7 @@ export const useSubjects = () => {
 
   const fetchSubjects = useCallback(async () => {
     try {
-      const res = await api.get('/tutors/subjects/');
+      const res = await publicClient.get('/tutors/subjects/');
       setSubjects(res.data);
     } catch (err) {
       console.error("Error fetching subjects:", err);

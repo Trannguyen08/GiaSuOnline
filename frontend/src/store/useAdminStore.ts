@@ -10,30 +10,38 @@ const toArray = (data: any) => {
 
 interface AdminState {
   stats: any | null;
+  finance: any | null;
   tutors: any[];
   users: any[];
+  courses: any[];
   isLoading: boolean;
   error: string | null;
 
   // Actions
-  fetchStats: () => Promise<void>;
+  fetchStats: (params?: any) => Promise<void>;
   fetchTutors: (params?: any) => Promise<void>;
   fetchUsers: (params?: any) => Promise<void>;
+  fetchCourses: (params?: any) => Promise<void>;
+  fetchFinance: (params?: any) => Promise<void>;
   tutorAction: (id: number, action: string, data?: any) => Promise<void>;
   userAction: (id: number, action: string, refreshParams?: any) => Promise<void>;
+  courseAction: (id: number, action: string, refreshParams?: any) => Promise<void>;
+  financeTutorAction: (id: number, action: string, data?: any, refreshParams?: any) => Promise<void>;
 }
 
 export const useAdminStore = create<AdminState>((set, get) => ({
   stats: null,
+  finance: null,
   tutors: [],
   users: [],
+  courses: [],
   isLoading: false,
   error: null,
 
-  fetchStats: async () => {
+  fetchStats: async (params) => {
     set({ isLoading: true, error: null });
     try {
-      const stats = await adminService.fetchDashboardStats();
+      const stats = await adminService.fetchDashboardStats(params);
       set({ stats, isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
@@ -60,6 +68,26 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     }
   },
 
+  fetchCourses: async (params) => {
+    set({ isLoading: true, error: null });
+    try {
+      const courses = await adminService.fetchCourses(params);
+      set({ courses: toArray(courses), isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+    }
+  },
+
+  fetchFinance: async (params) => {
+    set({ isLoading: true, error: null });
+    try {
+      const finance = await adminService.fetchFinance(params);
+      set({ finance, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+    }
+  },
+
   tutorAction: async (id, action, data) => {
     try {
       await adminService.performTutorAction(id, action, data);
@@ -76,6 +104,26 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       await adminService.performUserAction(id, action);
       // Refresh current list
       await get().fetchUsers(refreshParams);
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  courseAction: async (id, action, refreshParams) => {
+    try {
+      await adminService.performCourseAction(id, action);
+      await get().fetchCourses(refreshParams);
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  financeTutorAction: async (id, action, data, refreshParams) => {
+    try {
+      await adminService.performFinanceTutorAction(id, action, data);
+      await get().fetchFinance(refreshParams);
     } catch (error: any) {
       set({ error: error.message });
       throw error;
