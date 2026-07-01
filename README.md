@@ -27,7 +27,7 @@
 - [Cài đặt & Chạy dự án](#-cài-đặt--chạy-dự-án)
 - [Biến môi trường](#-biến-môi-trường)
 - [Tài liệu chi tiết](#-tài-liệu-chi-tiết)
-- [CI/CD](#-cicd)
+- [📁 Cấu trúc thư mục](#-cấu-trúc-thư-mục)
 
 ---
 
@@ -144,8 +144,6 @@ TutorMatch theo mô hình **microservices nhẹ** với 3 dịch vụ chính, gi
 |---|---|
 | Containerization | Docker + Docker Compose |
 | Reverse Proxy | Nginx |
-| CI/CD | GitHub Actions |
-| Code Quality | Flake8, Black, Bandit, Pytest |
 
 ---
 
@@ -550,45 +548,6 @@ Xem file [`.env.example`](.env.example) để biết tất cả biến. Bảng t
 | [docs/development.md](docs/development.md) | Hướng dẫn phát triển, coding standards, troubleshooting |
 
 ---
-
-## 🔄 CI/CD
-
-Dự án dùng **GitHub Actions** để tự động kiểm tra và deploy:
-
-### CI Pipeline (`.github/workflows/ci.yml`)
-
-Chạy tự động khi có **push** hoặc **pull request** vào `main`:
-
-```
-1. Khởi động PostgreSQL 16 + Redis 7 (service containers)
-2. Cài Python 3.12 + pip install requirements
-3. Lint:      flake8 backend/
-4. Format:    black --check backend/
-5. Security:  bandit -r backend/
-6. Test:      pytest --cov=apps --cov=core
-7. Coverage:  Upload lên Codecov
-```
-
-### Deploy Pipeline (`.github/workflows/deploy.yml`)
-
-Chạy tự động khi merge vào `main`:
-
-```
-1. SSH vào VPS
-2. git pull origin main
-3. docker compose -f docker-compose.prod.yml up --build -d
-4. python manage.py migrate
-```
-
-### GitHub Secrets cần cấu hình
-
-| Secret | Mô tả |
-|---|---|
-| `DOCKERHUB_USERNAME` | Docker Hub username |
-| `DOCKERHUB_TOKEN` | Docker Hub access token |
-| `VPS_HOST` | IP hoặc domain VPS |
-| `VPS_USER` | SSH username |
-| `VPS_SSH_KEY` | Private SSH key |
 
 ---
 
