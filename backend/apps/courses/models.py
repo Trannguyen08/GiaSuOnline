@@ -23,6 +23,13 @@ class Course(models.Model):
         TutorProfile, on_delete=models.CASCADE, related_name="teaching_courses"
     )
     subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True)
+    booking = models.OneToOneField(
+        "bookings.Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="course",
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     total_sessions = models.PositiveIntegerField(default=0)  # Tổng số buổi
@@ -290,6 +297,12 @@ class StudyRoomRead(models.Model):
 
 
 class CourseReview(models.Model):
+    class ModerationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        FAILED = "failed", "Failed"
+
     course = models.OneToOneField(
         Course, on_delete=models.CASCADE, related_name="review"
     )
@@ -303,6 +316,16 @@ class CourseReview(models.Model):
     )
     rating = models.PositiveSmallIntegerField()
     comment = models.TextField()
+    moderation_status = models.CharField(
+        max_length=20,
+        choices=ModerationStatus.choices,
+        default=ModerationStatus.PENDING,
+    )
+    moderation_score = models.PositiveSmallIntegerField(default=0)
+    moderation_flags = models.JSONField(default=list, blank=True)
+    moderation_reason = models.TextField(blank=True)
+    moderation_raw = models.JSONField(default=dict, blank=True)
+    moderated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -310,6 +333,45 @@ class CourseReview(models.Model):
 
     def __str__(self):
         return f"Review {self.rating}/5 for {self.course.title}"
+
+
+class TutorStudentFeedback(models.Model):
+    class ModerationStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        FAILED = "failed", "Failed"
+
+    course = models.OneToOneField(
+        Course, on_delete=models.CASCADE, related_name="student_feedback"
+    )
+    tutor = models.ForeignKey(
+        TutorProfile, on_delete=models.CASCADE, related_name="student_feedbacks"
+    )
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="received_tutor_feedbacks",
+    )
+    rating = models.PositiveSmallIntegerField()
+    comment = models.TextField()
+    moderation_status = models.CharField(
+        max_length=20,
+        choices=ModerationStatus.choices,
+        default=ModerationStatus.PENDING,
+    )
+    moderation_score = models.PositiveSmallIntegerField(default=0)
+    moderation_flags = models.JSONField(default=list, blank=True)
+    moderation_reason = models.TextField(blank=True)
+    moderation_raw = models.JSONField(default=dict, blank=True)
+    moderated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Student feedback {self.rating}/5 for {self.student_id}"
 
 
 class CourseExtensionRequest(models.Model):
@@ -338,3 +400,54 @@ class CourseExtensionRequest(models.Model):
 
     def __str__(self):
         return f"Extend {self.course_id} to {self.requested_end_date}"
+
+
+class CourseCancellationRequest(models.Model):
+    REQUESTED_BY_CHOICES = [
+        ("student", "Student"),
+        ("tutor", "Tutor"),
+    ]
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="cancellation_requests"
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="course_cancellation_requests",
+    )
+    requested_by_role = models.CharField(max_length=20, choices=REQUESTED_BY_CHOICES)
+    reason = models.TextField()
+    refund_required = models.BooleanField(default=False)
+    refund_percent = models.PositiveSmallIntegerField(default=0)
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    refund_note = models.CharField(max_length=255, blank=True)
+    bank_account_name = models.CharField(max_length=255, blank=True)
+    bank_account_number = models.CharField(max_length=64, blank=True)
+    bank_name = models.CharField(max_length=255, blank=True)
+    bank_branch = models.CharField(max_length=255, blank=True)
+    refund_qr = models.ImageField(
+        upload_to="course_cancellation_qr/", null=True, blank=True
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    admin_note = models.TextField(blank=True)
+    processed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="processed_course_cancellations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Cancel course {self.course_id} by {self.requested_by_role}"

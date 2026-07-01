@@ -29,6 +29,11 @@ class Booking(models.Model):
     subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
+    study_start_date = models.DateField(null=True, blank=True)
+    study_end_date = models.DateField(null=True, blank=True)
+    selected_schedules = models.JSONField(default=list, blank=True)
+    selected_slot_ids = models.JSONField(default=list, blank=True)
+    student_info = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -98,12 +103,22 @@ class TeachingSlot(models.Model):
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="available"
     )
+    confirmed_booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="confirmed_teaching_slots",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["start_time"]
         indexes = [
-            models.Index(fields=["tutor", "status", "start_time"]),
+            models.Index(
+                fields=["tutor", "status", "start_time"],
+                name="bookings_te_tutor_i_0dde58_idx",
+            ),
         ]
 
     def __str__(self):

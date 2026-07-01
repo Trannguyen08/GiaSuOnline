@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -28,6 +29,25 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 MIN_WIDTH = 640
 MIN_HEIGHT = 480
 DOC_TYPES_WITH_TEXT = {"identity_card_front", "identity_card_back", "degree", "certificate"}
+LENIENT_DOCUMENT_TYPES = {"certificate"}
+DOC_TYPE_RULES = {
+    "identity_card_front": {
+        "keywords": ["can cuoc", "cong dan", "cccd", "identity card", "id card", "ngay sinh", "date of birth"],
+        "issue": "Ảnh trong khung CCCD mặt trước không giống giấy căn cước công dân.",
+    },
+    "identity_card_back": {
+        "keywords": ["dac diem", "nhan dang", "ngay cap", "noi cap", "cuc canh sat", "can cuoc", "identity card"],
+        "issue": "Ảnh trong khung CCCD mặt sau không giống mặt sau CCCD.",
+    },
+    "degree": {
+        "keywords": ["bang", "tot nghiep", "cu nhan", "thac si", "dai hoc", "degree", "diploma", "university"],
+        "issue": "Ảnh trong khung bằng cấp không giống bằng cấp hoặc bảng điểm.",
+    },
+    "certificate": {
+        "keywords": ["chung nhan", "chung chi", "certificate", "award", "giai", "thuong", "ielts", "toeic", "toefl"],
+        "issue": "Ảnh trong khung thành tích không giống chứng nhận, giải thưởng hoặc thành tích.",
+    },
+}
 
 
 @dataclass
@@ -72,8 +92,16 @@ class ImagePrecheckService:
 
         metrics = self._analyze_image(image, document_type)
         score = 20
+        has_readable_text = self._has_basic_text(metrics.text)
+        is_identity_card = document_type.startswith("identity_card")
 
-        if metrics.width >= MIN_WIDTH and metrics.height >= MIN_HEIGHT:
+        if document_type in LENIENT_DOCUMENT_TYPES:
+            if metrics.width < 360 or metrics.height < 240:
+                score -= 5
+                issues.append("Ảnh hơi nhỏ, nhưng vẫn có thể gửi nếu nội dung nhìn được.")
+            else:
+                score += 8
+        elif metrics.width >= MIN_WIDTH and metrics.height >= MIN_HEIGHT:
             score += 15
         else:
             score -= 15
@@ -81,19 +109,22 @@ class ImagePrecheckService:
 
         if metrics.blur_score is None:
             suggestions.append("Không thể kiểm tra độ mờ bằng OpenCV, hệ thống chỉ đánh giá các tiêu chí còn lại.")
-        elif metrics.blur_score >= 90:
+        elif has_readable_text and is_identity_card:
+            score += 20
+        elif metrics.blur_score >= (55 if document_type in LENIENT_DOCUMENT_TYPES else 90):
             score += 20
         else:
-            score -= 30
+            score -= 12 if document_type in LENIENT_DOCUMENT_TYPES else 30
             issues.append(self._label(document_type, "hơi mờ", "Ảnh hơi mờ"))
 
-        if 55 <= metrics.brightness <= 205:
+        brightness_min, brightness_max = (35, 230) if document_type in LENIENT_DOCUMENT_TYPES else (55, 205)
+        if brightness_min <= metrics.brightness <= brightness_max:
             score += 15
         else:
-            score -= 20
+            score -= 8 if document_type in LENIENT_DOCUMENT_TYPES else 20
             issues.append("Ảnh quá tối hoặc quá sáng.")
 
-        if self._looks_not_cropped(image):
+        if self._looks_not_cropped(image, document_type):
             score += 10
         else:
             issues.append("Ảnh có thể bị cắt mất phần quan trọng.")
@@ -106,15 +137,21 @@ class ImagePrecheckService:
             else:
                 score -= 30
                 issues.append("Không phát hiện khuôn mặt trong ảnh chân dung.")
-                if self._has_basic_text(metrics.text):
+                if has_readable_text:
                     score -= 20
                     issues.append("Ảnh có vẻ là giấy tờ, không phải ảnh chân dung.")
         else:
-            if self._has_basic_text(metrics.text):
+            if has_readable_text:
                 score += 20
             else:
                 score -= 25
                 issues.append("Không đọc rõ chữ cơ bản trên giấy tờ.")
+
+            if self._matches_expected_document_type(document_type, metrics.text, image):
+                score += 15
+            else:
+                score -= 15 if document_type in LENIENT_DOCUMENT_TYPES else 35
+                issues.append(DOC_TYPE_RULES[document_type]["issue"])
 
         score = max(0, min(100, score))
         suggestions.extend(self._suggestions(document_type, issues))
@@ -152,7 +189,9 @@ class ImagePrecheckService:
         faces = detector.detectMultiScale(np.array(gray), scaleFactor=1.1, minNeighbors=4, minSize=(48, 48))
         return len(faces)
 
-    def _looks_not_cropped(self, image: Image.Image) -> bool:
+    def _looks_not_cropped(self, image: Image.Image, document_type: str = "") -> bool:
+        if document_type.startswith("identity_card"):
+            return self._identity_card_has_safe_margin(image)
         gray = image.convert("L")
         w, h = gray.size
         border = max(6, min(w, h) // 40)
@@ -166,9 +205,38 @@ class ImagePrecheckService:
         edge_delta = max(abs(ImageStat.Stat(region).mean[0] - stat.mean[0]) for region in edge_regions)
         return edge_delta < 75
 
+    def _identity_card_has_safe_margin(self, image: Image.Image) -> bool:
+        gray = image.convert("L")
+        w, h = gray.size
+        border = max(4, min(w, h) // 60)
+        regions = [
+            gray.crop((0, 0, w, border)),
+            gray.crop((0, h - border, w, h)),
+            gray.crop((0, 0, border, h)),
+            gray.crop((w - border, 0, w, h)),
+        ]
+        edge_means = [ImageStat.Stat(region).mean[0] for region in regions]
+        # Full-frame CCCD photos often place the card close to the image edge.
+        # Only flag crop risk when multiple borders are very dark/bright, which
+        # usually indicates content is cut off rather than simply tightly framed.
+        extreme_edges = sum(mean < 18 or mean > 238 for mean in edge_means)
+        return extreme_edges < 2
+
     def _has_basic_text(self, text: str) -> bool:
         compact = re.sub(r"\s+", "", text or "")
         return len(compact) >= 8
+
+    def _matches_expected_document_type(self, document_type: str, text: str, image: Image.Image) -> bool:
+        normalized = strip_accents(text)
+        if document_type.startswith("identity_card"):
+            ratio = image.width / max(image.height, 1)
+            has_identity_number = bool(re.search(r"\b\d{9}(\d{3})?\b", normalized))
+            has_keyword = self._has_any_keyword(normalized, DOC_TYPE_RULES[document_type]["keywords"])
+            return (has_identity_number or has_keyword) and 1.25 <= ratio <= 2.05
+        return self._has_any_keyword(normalized, DOC_TYPE_RULES[document_type]["keywords"])
+
+    def _has_any_keyword(self, text: str, keywords: Iterable[str]) -> bool:
+        return any(keyword in text for keyword in keywords)
 
     def _label(self, document_type: str, doc_text: str, generic_text: str) -> str:
         if document_type.startswith("identity_card"):
@@ -204,3 +272,8 @@ class ImagePrecheckService:
             issues=issues,
             suggestions=suggestions,
         )
+
+
+def strip_accents(value: str) -> str:
+    normalized = unicodedata.normalize("NFD", (value or "").lower())
+    return "".join(char for char in normalized if unicodedata.category(char) != "Mn").replace("đ", "d")

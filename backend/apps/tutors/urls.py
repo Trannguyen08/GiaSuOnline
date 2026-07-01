@@ -1,9 +1,11 @@
 from django.urls import path
 from .views import (
     TutorSettingsView,
+    TutorDashboardView,
     TutorGuaranteeStatusView,
     TutorGuaranteeDepositView,
     TutorCommissionPaymentView,
+    TutorPayoutRequestListCreateView,
     AdminTutorCommissionDeductView,
     SubjectListView,
     TutorPublicListView,
@@ -13,6 +15,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("dashboard/", TutorDashboardView.as_view(), name="tutor-dashboard"),
     path("settings/", TutorSettingsView.as_view(), name="tutor-settings"),
     path(
         "guarantee/",
@@ -28,6 +31,11 @@ urlpatterns = [
         "guarantee/commission/pay/",
         TutorCommissionPaymentView.as_view(),
         name="tutor-commission-payment",
+    ),
+    path(
+        "payout-requests/",
+        TutorPayoutRequestListCreateView.as_view(),
+        name="tutor-payout-requests",
     ),
     path(
         "admin/<int:pk>/commission/deduct/",

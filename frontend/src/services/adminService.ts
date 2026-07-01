@@ -1,9 +1,9 @@
 import { adminApi } from '../api/admin';
 
 export const adminService = {
-  async fetchDashboardStats() {
+  async fetchDashboardStats(params?: any) {
     try {
-      const stats = await adminApi.getStats();
+      const stats = await adminApi.getStats(params);
       return stats;
     } catch (error) {
       console.error("Error fetching admin stats:", error);
@@ -44,6 +44,42 @@ export const adminService = {
       return await adminApi.userAction(id, action);
     } catch (error) {
       console.error(`Error performing ${action} on user ${id}:`, error);
+      throw error;
+    }
+  },
+
+  async fetchCourses(params?: any) {
+    try {
+      return await adminApi.getCourses(params);
+    } catch (error) {
+      console.error("Error fetching courses:", error);
+      throw error;
+    }
+  },
+
+  async performCourseAction(id: number, action: string) {
+    try {
+      return await adminApi.courseAction(id, action);
+    } catch (error) {
+      console.error(`Error performing ${action} on course ${id}:`, error);
+      throw error;
+    }
+  },
+
+  async fetchFinance(params?: any) {
+    try {
+      return await adminApi.getFinance(params);
+    } catch (error) {
+      console.error("Error fetching finance overview:", error);
+      throw error;
+    }
+  },
+
+  async performFinanceTutorAction(id: number, action: string, data?: any) {
+    try {
+      return await adminApi.financeTutorAction(id, action, data);
+    } catch (error) {
+      console.error(`Error performing finance action ${action} on tutor ${id}:`, error);
       throw error;
     }
   }

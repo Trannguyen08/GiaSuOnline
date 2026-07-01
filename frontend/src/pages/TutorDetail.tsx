@@ -1,8 +1,86 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import api from '../api/client';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  Award,
+  BookOpen,
+  CalendarDays,
+  CheckCircle2,
+  GraduationCap,
+  MapPin,
+  Star,
+  UserRound,
+} from 'lucide-react';
+import { publicClient } from '../api/client';
 import { bookingsApi } from '../api/bookings';
 import { useToast } from '../components/ui/Toast';
+
+const dayLabels = ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+
+const weekdays = [
+  { value: 1, label: 'Thứ 2' },
+  { value: 2, label: 'Thứ 3' },
+  { value: 3, label: 'Thứ 4' },
+  { value: 4, label: 'Thứ 5' },
+  { value: 5, label: 'Thứ 6' },
+  { value: 6, label: 'Thứ 7' },
+  { value: 0, label: 'CN' },
+];
+
+const money = (value: number | string | null | undefined) =>
+  Number(value || 0).toLocaleString('vi-VN');
+
+const toDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatDisplayDate = (date: Date) => {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${date.getFullYear()}`;
+};
+
+const getDurationHours = (slot: any) => {
+  if (!slot) return 0;
+  const start = new Date(slot.start_time).getTime();
+  const end = new Date(slot.end_time).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 0;
+  return (end - start) / 3600000;
+};
+
+const getTimeRangeHours = (startTime: string, endTime: string) => {
+  const [startHour, startMinute] = startTime.split(':').map(Number);
+  const [endHour, endMinute] = endTime.split(':').map(Number);
+  const startTotal = startHour * 60 + startMinute;
+  const endTotal = endHour * 60 + endMinute;
+  return Math.max(0, (endTotal - startTotal) / 60);
+};
+
+const countWeekdayInRange = (startDate: string, endDate: string, weekday: number) => {
+  if (!startDate || !endDate || endDate < startDate) return 0;
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  let count = 0;
+  for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    if (date.getDay() === weekday) count += 1;
+  }
+  return count;
+};
+
+const formatTime = (value: string) =>
+  new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+const scheduleKey = (slot: any) => {
+  const date = new Date(slot.start_time);
+  return `${date.getDay()}|${formatTime(slot.start_time)}|${formatTime(slot.end_time)}`;
+};
 
 const TutorDetail: React.FC = () => {
   const { id } = useParams();
@@ -12,41 +90,164 @@ const TutorDetail: React.FC = () => {
   const [slots, setSlots] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
-  const [selectedSlotId, setSelectedSlotId] = useState<number | null>(null);
+  const [selectedScheduleKeys, setSelectedScheduleKeys] = useState<string[]>([]);
+  const [studyStartDate, setStudyStartDate] = useState('');
+  const [studyEndDate, setStudyEndDate] = useState('');
   const [booking, setBooking] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchTutorDetail();
-  }, [id]);
+    let mounted = true;
 
-  const fetchTutorDetail = async () => {
-    try {
-      const res = await api.get(`/tutors/public/${id}/`);
-      setTutor(res.data);
-      setSelectedSubjectId(res.data.tutor_subjects?.[0]?.subject?.toString() || '');
-      const slotData = await bookingsApi.getPublicTutorSlots(id!);
-      setSlots(slotData);
-      const reviewRes = await api.get(`/tutors/public/${id}/reviews/`);
-      setReviews(reviewRes.data);
-    } catch (err) {
-      console.error("Error fetching tutor detail:", err);
-    } finally {
-      setLoading(false);
-    }
+    const fetchTutorDetail = async () => {
+      setLoading(true);
+      try {
+        const [profileRes, slotData, reviewRes] = await Promise.all([
+          publicClient.get(`/tutors/public/${id}/`),
+          bookingsApi.getPublicTutorSlots(id!),
+          publicClient.get(`/tutors/public/${id}/reviews/`),
+        ]);
+        if (!mounted) return;
+        setTutor(profileRes.data);
+        setSlots(slotData);
+        setReviews(reviewRes.data);
+        setSelectedSubjectId(profileRes.data.tutor_subjects?.[0]?.subject?.toString() || '');
+      } catch (err) {
+        if (mounted) {
+          setTutor(null);
+          showToast('Không tải được thông tin gia sư.', 'error');
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    if (id) fetchTutorDetail();
+    return () => {
+      mounted = false;
+    };
+  }, [id, showToast]);
+
+  const selectedSubject = useMemo(
+    () => tutor?.tutor_subjects?.find((item: any) => item.subject?.toString() === selectedSubjectId),
+    [selectedSubjectId, tutor],
+  );
+
+  const scheduleOptions = useMemo(() => {
+    const options = new Map<string, { key: string; day: number; startTime: string; endTime: string }>();
+    slots.forEach(slot => {
+      const date = new Date(slot.start_time);
+      const startDateText = toDateInput(date);
+      if (studyStartDate && startDateText < studyStartDate) return;
+      if (studyEndDate && startDateText > studyEndDate) return;
+      const key = scheduleKey(slot);
+      if (!options.has(key)) {
+        options.set(key, {
+          key,
+          day: date.getDay(),
+          startTime: formatTime(slot.start_time),
+          endTime: formatTime(slot.end_time),
+        });
+      }
+    });
+    return Array.from(options.values()).sort((a, b) => a.day - b.day || a.startTime.localeCompare(b.startTime));
+  }, [slots, studyEndDate, studyStartDate]);
+
+  const groupedSchedules = useMemo(() => {
+    const options = new Map<string, { key: string; day: number; startTime: string; endTime: string }>();
+    slots.forEach(slot => {
+      const key = scheduleKey(slot);
+      if (!options.has(key)) {
+        const date = new Date(slot.start_time);
+        options.set(key, {
+          key,
+          day: date.getDay(),
+          startTime: formatTime(slot.start_time),
+          endTime: formatTime(slot.end_time),
+        });
+      }
+    });
+    return weekdays
+      .map(day => ({
+        ...day,
+        ranges: Array.from(options.values())
+          .filter(item => item.day === day.value)
+          .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+      }))
+      .filter(day => day.ranges.length > 0);
+  }, [slots]);
+
+  useEffect(() => {
+    const availableKeys = new Set(scheduleOptions.map(item => item.key));
+    setSelectedScheduleKeys(current => current.filter(key => availableKeys.has(key)));
+  }, [scheduleOptions]);
+
+  const selectedScheduleOptions = useMemo(
+    () => scheduleOptions.filter(option => selectedScheduleKeys.includes(option.key)),
+    [scheduleOptions, selectedScheduleKeys],
+  );
+
+  const selectedSlots = useMemo(() => {
+    return slots
+      .filter(slot => {
+        if (!selectedScheduleKeys.includes(scheduleKey(slot))) return false;
+        const startDateText = toDateInput(new Date(slot.start_time));
+        if (studyStartDate && startDateText < studyStartDate) return false;
+        if (studyEndDate && startDateText > studyEndDate) return false;
+        return true;
+      })
+      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+  }, [selectedScheduleKeys, slots, studyEndDate, studyStartDate]);
+
+  const selectedSlotIds = selectedSlots.map(slot => slot.id);
+  const hourlyRate = Number(selectedSubject?.hourly_rate || 0);
+  const sessionCount = selectedScheduleOptions.reduce(
+    (totalSessions, option) => totalSessions + countWeekdayInRange(studyStartDate, studyEndDate, option.day),
+    0,
+  );
+  const durationHours = selectedScheduleOptions.reduce((totalHours, option) => {
+    const sessions = countWeekdayInRange(studyStartDate, studyEndDate, option.day);
+    return totalHours + sessions * getTimeRangeHours(option.startTime, option.endTime);
+  }, 0);
+  const tuition = Math.round(hourlyRate * durationHours);
+  const total = tuition;
+
+  const profileName = tutor?.full_name || tutor?.username || 'Gia sư';
+  const avatarUrl =
+    tutor?.avatar_url ||
+    tutor?.avatar ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(profileName)}&background=eef2ff&color=4f46e`;
+
+  const toggleScheduleKey = (key: string) => {
+    setSelectedScheduleKeys(current =>
+      current.includes(key) ? current.filter(item => item !== key) : [...current, key],
+    );
   };
 
   const handleBookSlot = async () => {
-    if (!selectedSlotId) return;
+    if (!studyStartDate || !studyEndDate) {
+      showToast('Vui lòng chọn ngày bắt đầu và ngày kết thúc học.', 'error');
+      return;
+    }
+    if (studyEndDate < studyStartDate) {
+      showToast('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.', 'error');
+      return;
+    }
+    if (selectedSlotIds.length === 0) {
+      showToast('Vui lòng chọn lịch học còn trống.', 'error');
+      return;
+    }
     if (!selectedSubjectId) {
       showToast('Vui lòng chọn môn học trước khi đặt lịch.', 'error');
       return;
     }
     setBooking(true);
     try {
-      await bookingsApi.bookSlot(selectedSlotId, { subject: selectedSubjectId });
-      setSlots(slots.filter(slot => slot.id !== selectedSlotId));
-      setSelectedSlotId(null);
+      for (const slotId of selectedSlotIds) {
+        await bookingsApi.bookSlot(slotId, { subject: selectedSubjectId });
+      }
+      setSlots(current => current.filter(slot => !selectedSlotIds.includes(slot.id)));
+      setSelectedScheduleKeys([]);
       showToast('Đăng ký lịch học thành công!', 'success');
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Đăng ký lịch học thất bại.', 'error');
@@ -55,403 +256,345 @@ const TutorDetail: React.FC = () => {
     }
   };
 
-  const schedule = [
-    { shift: 'Sáng', slots: [null, '08:00', null, '08:30', null, '08:00', null] },
-    { shift: 'Chiều', slots: ['14:00', null, '15:30', null, '14:00', null, null] },
-    { shift: 'Tối', slots: ['19:00', '20:30', '18:00', '19:00', null, null, null] },
-  ];
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-[#5a5ce6]" />
+      </div>
+    );
+  }
 
-  const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
-
-  if (loading) return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-[#5a5ce6]"></div>
-    </div>
-  );
-
-  if (!tutor) return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-      <h2 className="text-2xl font-bold text-gray-800">Không tìm thấy gia sư</h2>
-      <button onClick={() => navigate('/find-tutors')} className="text-[#5a5ce6] font-bold hover:underline">Quay lại danh sách</button>
-    </div>
-  );
+  if (!tutor) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+        <h2 className="text-2xl font-bold text-gray-800">Không tìm thấy gia sư</h2>
+        <button onClick={() => navigate('/find-tutors')} className="font-bold text-[#5a5ce6] hover:underline">
+          Quay lại danh sách
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 bg-[#f8faff] py-10">
-      <div className="max-w-[1200px] mx-auto px-6 grid lg:grid-cols-[1fr_380px] gap-8">
-        
-        {/* Main Content */}
+      <div className="mx-auto max-w-[980px] px-6">
         <div className="space-y-8">
-          
-          {/* Profile Header */}
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50 overflow-hidden relative">
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
-            <div className="flex flex-col md:flex-row gap-8 items-start">
+          <section className="relative overflow-hidden rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <div className="absolute left-0 top-0 h-2 w-full bg-gradient-to-r from-indigo-500 to-sky-500" />
+            <div className="flex flex-col items-start gap-8 md:flex-row">
               <div className="relative">
-                <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] overflow-hidden shadow-2xl border-4 border-white">
-                  <img src={tutor.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(tutor.full_name)}&background=random`} alt="tutor" className="w-full h-full object-cover" />
+                <div className="h-36 w-36 overflow-hidden rounded-[1.5rem] border-4 border-white shadow-xl md:h-40 md:w-40">
+                  <img src={avatarUrl} alt={profileName} className="h-full w-full object-cover" />
                 </div>
-                <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-green-500 border-4 border-white rounded-full flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                <div className="absolute -bottom-2 -right-2 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-emerald-500">
+                  <CheckCircle2 className="h-4 w-4 text-white" />
                 </div>
               </div>
-              
+
               <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-2xl md:text-3xl font-extrabold text-[#1e1b4b]">{tutor.full_name}</h1>
-                  {tutor.rating_avg >= 4.8 && (
-                    <span className="text-[10px] bg-indigo-50 text-[#5a5ce6] px-3 py-1 rounded-full font-bold uppercase tracking-wider">Gia sư Elite</span>
+                <div className="mb-2 flex flex-wrap items-center gap-3">
+                  <h1 className="text-2xl font-extrabold text-[#1e1b4b] md:text-3xl">{profileName}</h1>
+                  {Number(tutor.rating_avg || 0) >= 4.8 && (
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#5a5ce6]">
+                      Gia sư nổi bật
+                    </span>
                   )}
                 </div>
-                
-                <p className="text-lg font-bold text-[#5a5ce6] mb-4">{tutor.title}</p>
-                
-                <div className="flex flex-wrap items-center gap-6 mb-6 text-sm">
-                  <div className="flex items-center gap-1">
-                    <svg className="w-4 h-4 text-yellow-400 fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                    <span className="font-bold text-gray-900">{parseFloat(tutor.rating_avg).toFixed(1)}</span>
-                    <span className="text-gray-400">({tutor.total_reviews} đánh giá)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-500 font-medium">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    {tutor.teaching_region || tutor.location || 'Toàn quốc'}
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-500 font-medium">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-10V4m0 10V4m-4 18c0 1.105.895 2 2 2s2-.895 2-2M9 21c0 1.105.895 2 2 2s2-.895 2-2" /></svg>
-                    {tutor.experience_years} năm kinh nghiệm
-                  </div>
+                <p className="mb-4 text-lg font-bold text-[#5a5ce6]">{tutor.title || 'Gia sư TutorMatch'}</p>
+                <div className="mb-6 flex flex-wrap items-center gap-5 text-sm">
+                  <span className="flex items-center gap-1 font-bold text-gray-900">
+                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                    {Number(tutor.rating_avg || 0).toFixed(1)}
+                    <span className="font-medium text-gray-400">({tutor.total_reviews || 0} đánh giá)</span>
+                  </span>
+                  <span className="flex items-center gap-2 font-medium text-gray-500">
+                    <MapPin className="h-4 w-4" />
+                    {tutor.teaching_region || tutor.location || tutor.address || 'Toàn quốc'}
+                  </span>
+                  <span className="flex items-center gap-2 font-medium text-gray-500">
+                    <Award className="h-4 w-4" />
+                    {tutor.experience_years || 0} năm kinh nghiệm
+                  </span>
                 </div>
-                
-                <div className="flex items-center gap-4">
-                  <button className="bg-[#5a5ce6] hover:bg-[#4b4de0] text-white px-8 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-indigo-100 hover:-translate-y-0.5">Đặt lịch ngay</button>
-                  <button className="bg-white border-2 border-indigo-100 text-[#5a5ce6] hover:bg-indigo-50 px-8 py-3 rounded-2xl font-bold transition-all flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                    Nhắn tin
-                  </button>
-                </div>
+                <button
+                  onClick={() => navigate(`/tutor/${id}/book`)}
+                  className="rounded-2xl bg-[#5a5ce6] px-8 py-3 font-bold text-white shadow-lg shadow-indigo-100 transition-all hover:-translate-y-0.5 hover:bg-[#4b4de0]"
+                >
+                  Đặt lịch
+                </button>
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* About Me */}
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-            <h3 className="text-xl font-bold text-[#1e1b4b] mb-6 flex items-center gap-3">
-              <span className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-[#5a5ce6]">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+          <section className="rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <h3 className="mb-6 flex items-center gap-3 text-xl font-bold text-[#1e1b4b]">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-[#5a5ce6]">
+                <UserRound className="h-5 w-5" />
               </span>
-              Về bản thân
+              Về gia sư
             </h3>
-            <p className="text-gray-600 leading-relaxed text-[15px]">
+            <p className="text-[15px] leading-relaxed text-gray-600">
               {tutor.bio || 'Gia sư chưa cập nhật mô tả bản thân.'}
             </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {tutor.university && <InfoLine label="Trường" value={tutor.university} />}
+              {tutor.qualification && <InfoLine label="Trình độ" value={tutor.qualification} />}
+              {tutor.teaching_mode && <InfoLine label="Hình thức" value={tutor.teaching_mode} />}
+              {tutor.subjects_text && <InfoLine label="Môn đăng ký" value={tutor.subjects_text} />}
+            </div>
             {tutor.teaching_levels?.length > 0 && (
               <div className="mt-6 flex flex-wrap gap-2">
                 {tutor.teaching_levels.map((level: string) => (
-                  <span key={level} className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-[#5a5ce6]">{level}</span>
+                  <span key={level} className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-[#5a5ce6]">
+                    {level}
+                  </span>
                 ))}
               </div>
             )}
-          </div>
+          </section>
 
-          {/* Education & Experience */}
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-            <h3 className="text-xl font-bold text-[#1e1b4b] mb-8 flex items-center gap-3">
-              <span className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l9-5-9-5-9 5 9 5z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" /></svg>
+          <section className="rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <h3 className="mb-6 flex items-center gap-3 text-xl font-bold text-[#1e1b4b]">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+                <BookOpen className="h-5 w-5" />
               </span>
-              Học vấn & Kinh nghiệm
+              Môn học và học phí
             </h3>
-            <div className="space-y-10">
-              {tutor.educations?.map((edu: any, idx: number) => (
-                <div key={idx} className="flex gap-6 relative">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex-shrink-0 flex items-center justify-center text-[#5a5ce6] relative z-10 shadow-sm border border-white">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+            {tutor.tutor_subjects?.length ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {tutor.tutor_subjects.map((item: any) => (
+                  <div key={item.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <p className="font-extrabold text-gray-900">{item.subject_name}</p>
+                    <p className="mt-1 text-sm font-medium text-gray-500">{item.level || 'Mọi cấp độ'}</p>
+                    <p className="mt-3 text-sm font-extrabold text-[#5a5ce6]">{money(item.hourly_rate)}đ/giờ</p>
                   </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900 text-lg mb-1">{edu.degree}</h4>
-                    <p className="text-sm text-gray-500 mb-2">{edu.school} • {edu.years}</p>
-                  </div>
-                </div>
-              ))}
-
-              {tutor.certifications?.map((cert: any, idx: number) => (
-                <div key={idx} className="flex gap-6 relative">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex-shrink-0 flex items-center justify-center text-[#5a5ce6] relative z-10 shadow-sm border border-white">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900 text-lg mb-1">{cert.title}</h4>
-                    <p className="text-sm text-gray-500 mb-2">{cert.organization} • Cấp năm {cert.year}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {((tutor.degree_images?.length || tutor.degree_image_url) || tutor.achievements?.length > 0) && (
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-              <h3 className="text-xl font-bold text-[#1e1b4b] mb-6">Bằng cấp & thành tích</h3>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {(tutor.degree_images?.length ? tutor.degree_images : tutor.degree_image_url ? [{ image_url: tutor.degree_image_url }] : []).map((item: any, index: number) => (
-                  <a key={item.id || index} href={item.image_url} target="_blank" rel="noreferrer" className="block rounded-2xl border border-indigo-50 overflow-hidden bg-gray-50">
-                    <img src={item.image_url} alt="Bằng cấp" className="h-48 w-full object-cover" />
-                    <p className="p-3 text-sm font-bold text-gray-700">Ảnh bằng cấp {index + 1}</p>
-                  </a>
                 ))}
-                {tutor.achievements?.map((item: any) => (
-                  <a key={item.id} href={item.image_url} target="_blank" rel="noreferrer" className="block rounded-2xl border border-indigo-50 overflow-hidden bg-gray-50">
-                    <img src={item.image_url} alt={item.description || 'Thành tích'} className="h-48 w-full object-cover" />
-                    <p className="p-3 text-sm font-bold text-gray-700">{item.description || 'Thành tích nổi bật'}</p>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Weekly Schedule */}
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-bold text-[#1e1b4b] flex items-center gap-3">
-                <span className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                </span>
-                Lịch trống tuần này
-              </h3>
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-[#5a5ce6] rounded-sm"></div>
-                  <span className="text-[10px] font-bold text-gray-500 uppercase">Cần học (Trống)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gray-100 rounded-sm"></div>
-                  <span className="text-[10px] font-bold text-gray-500 uppercase">Đã kín</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-center border-separate border-spacing-2">
-                <thead>
-                  <tr>
-                    <th className="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ca học</th>
-                    {days.map(day => (
-                      <th key={day} className="p-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{day}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedule.map((row, idx) => (
-                    <tr key={idx}>
-                      <td className="p-2 text-xs font-bold text-gray-900 bg-gray-50 rounded-xl border border-gray-100">{row.shift}</td>
-                      {row.slots.map((slot, sIdx) => (
-                        <td key={sIdx} className="p-1">
-                          {slot ? (
-                            <div className="bg-[#5a5ce6] text-white text-[10px] font-bold py-3 rounded-xl shadow-sm shadow-indigo-100 hover:scale-105 transition-transform cursor-pointer">
-                              {slot}
-                            </div>
-                          ) : (
-                            <div className="bg-gray-50/50 h-10 rounded-xl border border-dashed border-gray-100"></div>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-            <h3 className="text-xl font-bold text-[#1e1b4b] mb-6">Khung giờ có thể đăng ký</h3>
-            {slots.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center text-sm font-medium text-gray-400">
-                Gia sư hiện chưa mở khung giờ trống.
               </div>
             ) : (
-              <div className="grid md:grid-cols-2 gap-3">
-                {slots.map(slot => (
-                  <button
-                    key={slot.id}
-                    onClick={() => setSelectedSlotId(slot.id)}
-                    className={`text-left rounded-2xl border p-4 transition-all ${
-                      selectedSlotId === slot.id
-                        ? 'border-[#5a5ce6] bg-indigo-50 text-[#1e1b4b]'
-                        : 'border-gray-100 bg-white hover:border-indigo-200'
-                    }`}
-                  >
-                    <p className="font-bold text-sm">{new Date(slot.start_time).toLocaleString('vi-VN')}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Đến {new Date(slot.end_time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                    <p className="text-sm font-extrabold text-[#5a5ce6] mt-2">{Number(slot.price).toLocaleString('vi-VN')}đ</p>
-                    {slot.note && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{slot.note}</p>}
-                  </button>
-                ))}
-              </div>
+              <EmptyState text="Gia sư chưa cập nhật môn học." />
             )}
-          </div>
+          </section>
 
-          {/* Reviews */}
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-indigo-50">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-xl font-bold text-[#1e1b4b] flex items-center gap-3">
-                <span className="w-10 h-10 bg-yellow-50 rounded-xl flex items-center justify-center text-yellow-600">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                </span>
-                Đánh giá từ học sinh
-              </h3>
-              <button className="text-sm font-bold text-[#5a5ce6] hover:underline transition-all">Xem tất cả</button>
-            </div>
+          <section className="rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <h3 className="mb-6 flex items-center gap-3 text-xl font-bold text-[#1e1b4b]">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50 text-purple-600">
+                <GraduationCap className="h-5 w-5" />
+              </span>
+              Thành tích / Chứng chỉ
+            </h3>
+            {tutor.educations?.length || tutor.certifications?.length || tutor.achievements?.length ? (
+              <div className="space-y-5">
+                {tutor.educations?.map((edu: any) => (
+                  <TimelineItem key={`edu-${edu.id}`} title={edu.degree} subtitle={`${edu.school || ''}${edu.years ? ` - ${edu.years}` : ''}`} />
+                ))}
+                {tutor.certifications?.map((cert: any) => (
+                  <TimelineItem
+                    key={`cert-${cert.id}`}
+                    title={cert.title}
+                    subtitle={`${cert.organization || ''}${cert.year ? ` - Cấp năm ${cert.year}` : ''}`}
+                  />
+                ))}
+                {tutor.achievements?.length > 0 && (
+                  <div className="grid gap-4 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {tutor.achievements.map((item: any) => (
+                      <a key={item.id} href={item.image_url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-indigo-50 bg-gray-50">
+                        <img src={item.image_url} alt={item.description || 'Thành tích'} className="h-48 w-full object-cover" />
+                        <p className="p-3 text-sm font-bold text-gray-700">{item.description || 'Thành tích nổi bật'}</p>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <EmptyState text="Gia sư chưa cập nhật học vấn hoặc chứng chỉ." />
+            )}
+          </section>
 
-            <div className="space-y-8">
-              {reviews.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center text-sm font-medium text-gray-400">
-                  Chưa có đánh giá từ học viên.
-                </div>
-              ) : reviews.map((review, index) => (
-                <div key={review.id} className={index < reviews.length - 1 ? 'pb-8 border-b border-gray-50' : 'pb-4'}>
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex gap-4">
-                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${review.student_name}`} alt="student" className="w-10 h-10 rounded-xl object-cover" />
-                      <div>
-                        <h4 className="font-bold text-gray-900">{review.student_name}</h4>
-                        <p className="text-[10px] text-gray-400 font-medium">{review.subject_name || 'Khóa học đã hoàn thành'}</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-0.5">
-                      {[1,2,3,4,5].map(i => (
-                        <svg key={i} className={`w-3.5 h-3.5 ${i <= review.rating ? 'text-yellow-400' : 'text-gray-200'} fill-current`} viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+
+          <section className="rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <h3 className="mb-6 flex items-center gap-3 text-xl font-bold text-[#1e1b4b]">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <CalendarDays className="h-5 w-5" />
+              </span>
+              Lịch rảnh có thể đăng ký
+            </h3>
+            {groupedSchedules.length === 0 ? (
+              <EmptyState text="Gia sư hiện chưa mở khung giờ trống." />
+            ) : (
+              <div className="space-y-4">
+                {groupedSchedules.map(day => (
+                  <div key={day.value} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <p className="mb-3 text-sm font-extrabold text-gray-900">{day.label}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {day.ranges.map(range => (
+                        <button
+                          key={range.key}
+                          onClick={() => navigate(`/tutor/${id}/book`)}
+                          className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${
+                            selectedScheduleKeys.includes(range.key)
+                              ? 'bg-[#5a5ce6] text-white shadow-md shadow-indigo-100'
+                              : 'bg-white text-gray-700 ring-1 ring-gray-100 hover:text-[#5a5ce6] hover:ring-indigo-200'
+                          }`}
+                        >
+                          {range.startTime} - {range.endTime}
+                        </button>
                       ))}
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600 leading-relaxed">{review.comment}</p>
-                  <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">{new Date(review.created_at).toLocaleDateString('vi-VN')}</p>
-                </div>
-              ))}
-              {false && <div className="pb-8 border-b border-gray-50">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex gap-4">
-                    <img src="https://i.pravatar.cc/150?u=s1" alt="student" className="w-10 h-10 rounded-xl object-cover" />
-                    <div>
-                      <h4 className="font-bold text-gray-900">Trần Hoàng Nam</h4>
-                      <p className="text-[10px] text-gray-400 font-medium">Học sinh lớp 12 - Luyện thi ĐH</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-0.5">
-                    {[1,2,3,4,5].map(i => (
-                      <svg key={i} className="w-3.5 h-3.5 text-yellow-400 fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  "Chị Minh Anh dạy rất nhiệt tình và dễ hiểu. Nhờ chị mà phần Writing của mình tiến bộ rõ rệt, từ mức 5.5 lên 7.0 chỉ sau 3 tháng học."
-                </p>
-                <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">2 ngày trước</p>
-              </div>}
-
-              {false && <div className="pb-4">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex gap-4">
-                    <img src="https://i.pravatar.cc/150?u=s2" alt="parent" className="w-10 h-10 rounded-xl object-cover" />
-                    <div>
-                      <h4 className="font-bold text-gray-900">Phụ huynh bé Linh</h4>
-                      <p className="text-[10px] text-gray-400 font-medium">Lớp 9 - Luyện thi vào 10</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-0.5">
-                    {[1,2,3,4,5].map(i => (
-                      <svg key={i} className="w-3.5 h-3.5 text-yellow-400 fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  "Gia sư đúng giờ, phương pháp giảng dạy hiện đại giúp bé nhà tôi không còn sợ môn Tiếng Anh nữa. Rất hài lòng với sự tận tâm của cô giáo."
-                </p>
-                <p className="text-[10px] text-gray-400 font-bold mt-4 uppercase">1 tuần trước</p>
-              </div>}
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar Booking Widget */}
-        <aside>
-          <div className="sticky top-28 space-y-6">
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl shadow-indigo-100 border border-indigo-50">
-              <h3 className="text-xl font-bold text-[#1e1b4b] mb-8">Đặt lịch học</h3>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 block">Chọn môn học</label>
-                  <select
-                    value={selectedSubjectId}
-                    onChange={event => setSelectedSubjectId(event.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                  >
-                    {tutor.tutor_subjects?.map((ts: any) => (
-                      <option key={ts.id} value={ts.subject}>{ts.subject_name} - {ts.level}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 block">Hình thức học</label>
-                  <div className="grid grid-cols-2 gap-2 p-1.5 bg-gray-50 rounded-2xl border border-gray-100">
-                    <button className="py-2.5 rounded-xl text-sm font-bold bg-white text-[#5a5ce6] shadow-sm border border-indigo-50">Trực tuyến</button>
-                    <button className="py-2.5 rounded-xl text-sm font-bold text-gray-400 hover:text-gray-600">Tại nhà</button>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-gray-100 space-y-3">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 font-medium">Học phí (1.5 giờ)</span>
-                    <span className="font-bold text-gray-900">350.000đ</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 font-medium">Phí dịch vụ (5%)</span>
-                    <span className="font-bold text-gray-900">17.500đ</span>
-                  </div>
-                  <div className="flex justify-between items-center pt-3">
-                    <span className="text-lg font-bold text-[#1e1b4b]">Tổng thanh toán</span>
-                    <span className="text-xl font-extrabold text-[#5a5ce6]">367.500đ</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleBookSlot}
-                  disabled={!selectedSlotId || booking}
-                  className="w-full bg-[#5a5ce6] hover:bg-[#4b4de0] text-white py-4 rounded-2xl font-bold text-lg transition-all shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50"
-                >
-                  {booking ? 'Đang đăng ký...' : 'Xác nhận đặt lịch'}
-                </button>
-                
-                <p className="text-[10px] text-gray-400 text-center font-medium leading-relaxed">
-                  * Bạn sẽ không bị trừ tiền ngay. Gia sư sẽ phản hồi yêu cầu của bạn trong tối đa 2 giờ làm việc.
-                </p>
+                ))}
               </div>
-            </div>
+            )}
+          </section>
 
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-indigo-50 space-y-4">
-              <h4 className="text-sm font-bold text-[#1e1b4b] flex items-center gap-2">
-                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                Chính sách bảo vệ
-              </h4>
-              <ul className="space-y-3">
-                <li className="flex items-start gap-2 text-xs text-gray-500 leading-relaxed font-medium">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full mt-1 flex-shrink-0"></div>
-                  Hoàn trả 100% nếu gia sư không đúng hồ sơ.
-                </li>
-                <li className="flex items-start gap-2 text-xs text-gray-500 leading-relaxed font-medium">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full mt-1 flex-shrink-0"></div>
-                  Miễn phí học thử buổi đầu tiên.
-                </li>
-              </ul>
-            </div>
-          </div>
-        </aside>
+          <section className="rounded-[2rem] border border-indigo-50 bg-white p-8 shadow-sm">
+            <h3 className="mb-6 flex items-center gap-3 text-xl font-bold text-[#1e1b4b]">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-yellow-50 text-yellow-600">
+                <Star className="h-5 w-5" />
+              </span>
+              Đánh giá từ học viên
+            </h3>
+            {reviews.length === 0 ? (
+              <EmptyState text="Chưa có đánh giá từ học viên." />
+            ) : (
+              <div className="space-y-6">
+                {reviews.map((review, index) => (
+                  <div key={review.id} className={index < reviews.length - 1 ? 'border-b border-gray-50 pb-6' : ''}>
+                    <div className="mb-3 flex items-start justify-between gap-4">
+                      <div>
+                        <h4 className="font-bold text-gray-900">{review.student_name}</h4>
+                        <p className="text-xs font-medium text-gray-400">{review.subject_name || 'Khóa học đã hoàn thành'}</p>
+                      </div>
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <Star key={i} className={`h-3.5 w-3.5 ${i <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'fill-gray-200 text-gray-200'}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sm leading-relaxed text-gray-600">{review.comment}</p>
+                    <p className="mt-3 text-[10px] font-bold uppercase text-gray-400">{new Date(review.created_at).toLocaleDateString('vi-VN')}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
 
       </div>
     </div>
   );
 };
 
+const InfoLine = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</p>
+    <p className="mt-1 text-sm font-bold text-gray-800">{value}</p>
+  </div>
+);
+
+const TimelineItem = ({ title, subtitle }: { title: string; subtitle: string }) => (
+  <div className="flex gap-4">
+    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-white bg-indigo-50 text-[#5a5ce6] shadow-sm">
+      <GraduationCap className="h-5 w-5" />
+    </div>
+    <div>
+      <h4 className="font-bold text-gray-900">{title}</h4>
+      {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
+    </div>
+  </div>
+);
+
+const CalendarDateInput = ({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedDate = value ? parseLocalDate(value) : null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maxDate = new Date(today.getFullYear() + 2, today.getMonth(), today.getDate());
+  const [viewYear, setViewYear] = useState(selectedDate?.getFullYear() || today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(selectedDate?.getMonth() || today.getMonth());
+  const monthStart = new Date(viewYear, viewMonth, 1);
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const leadingSlots = (monthStart.getDay() + 6) % 7;
+  const monthNames = ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'];
+  const years = Array.from({ length: 3 }, (_, index) => today.getFullYear() + index);
+  const weekDays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const dates = [
+    ...Array.from({ length: leadingSlots }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => new Date(viewYear, viewMonth, index + 1)),
+  ];
+
+  const pickDate = (date: Date) => {
+    if (date < today || date > maxDate) return;
+    onChange(toDateInput(date));
+    setIsOpen(false);
+  };
+
+  const moveMonth = (direction: number) => {
+    const next = new Date(viewYear, viewMonth + direction, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  return (
+    <label className="relative">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-900">{label}</span>
+      <button
+        type="button"
+        onClick={() => setIsOpen(current => !current)}
+        className="mt-2 flex w-full items-center justify-between rounded-xl border border-indigo-100 bg-white px-3 py-3 text-left text-sm font-bold text-slate-800 shadow-sm outline-none transition-all focus:border-[#5a5ce6] focus:ring-4 focus:ring-[#5a5ce6]/15"
+      >
+        <span className={selectedDate ? 'text-slate-900' : 'text-slate-400'}>
+          {selectedDate ? formatDisplayDate(selectedDate) : 'Chọn ngày'}
+        </span>
+        <CalendarDays className="h-4 w-4 text-[#5a5ce6]" />
+      </button>
+      {isOpen && (
+        <div className="absolute z-30 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-2xl border border-indigo-100 bg-white p-4 shadow-xl shadow-indigo-100/70">
+          <div className="mb-4 flex items-center gap-2">
+            <button type="button" onClick={() => moveMonth(-1)} className="h-9 w-9 rounded-xl bg-indigo-50 text-lg font-black text-[#5a5ce6] hover:bg-indigo-100">
+              ‹
+            </button>
+            <select value={viewMonth} onChange={event => setViewMonth(Number(event.target.value))} className="min-w-0 flex-1 rounded-xl border border-indigo-50 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none">
+              {monthNames.map((name, index) => <option key={name} value={index}>{name}</option>)}
+            </select>
+            <select value={viewYear} onChange={event => setViewYear(Number(event.target.value))} className="w-24 rounded-xl border border-indigo-50 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none">
+              {years.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+            <button type="button" onClick={() => moveMonth(1)} className="h-9 w-9 rounded-xl bg-indigo-50 text-lg font-black text-[#5a5ce6] hover:bg-indigo-100">
+              ›
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-black text-slate-400">
+            {weekDays.map(dayName => <div key={dayName} className="py-1">{dayName}</div>)}
+          </div>
+          <div className="mt-1 grid grid-cols-7 gap-1">
+            {dates.map((date, index) => {
+              if (!date) return <div key={`blank-${index}`} className="h-9" />;
+              const disabled = date < today || date > maxDate;
+              const selected = selectedDate && toDateInput(date) === toDateInput(selectedDate);
+              return (
+                <button
+                  type="button"
+                  key={toDateInput(date)}
+                  disabled={disabled}
+                  onClick={() => pickDate(date)}
+                  className={`h-9 rounded-xl text-sm font-bold transition-all ${selected ? 'bg-[#5a5ce6] text-white shadow-md shadow-indigo-200' : disabled ? 'cursor-not-allowed text-slate-200' : 'text-slate-700 hover:bg-indigo-50 hover:text-[#5a5ce6]'}`}
+                >
+                  {date.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </label>
+  );
+};
+
+const EmptyState = ({ text, compact = false }: { text: string; compact?: boolean }) => (
+  <div className={`rounded-2xl border border-dashed border-gray-200 text-center text-sm font-medium text-gray-400 ${compact ? 'p-4' : 'p-8'}`}>
+    {text}
+  </div>
+);
+
 export default TutorDetail;
+

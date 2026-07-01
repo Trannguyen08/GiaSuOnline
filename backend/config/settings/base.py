@@ -71,6 +71,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 AUTH_USER_MODEL = "users.CustomUser"
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
+TIME_ZONE = "Asia/Ho_Chi_Minh"
+USE_TZ = True
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -82,7 +85,16 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "100/day", "user": "1000/day"},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/day",
+        "user": "1000/day",
+        "booking_action": "20/minute",
+        "payment_action": "12/minute",
+        "course_action": "30/minute",
+        "feedback_action": "8/minute",
+        "upload_action": "20/minute",
+        "ai_action": "10/minute",
+    },
 }
 
 SIMPLE_JWT = {
@@ -106,6 +118,12 @@ CELERY_TASK_DEFAULT_QUEUE = "celery"
 CELERY_TASK_ROUTES = {
     "apps.bookings.tasks.process_booking_payment_verification": {
         "queue": "payments",
+    },
+    "apps.courses.tasks.moderate_course_review": {
+        "queue": "ai",
+    },
+    "apps.courses.tasks.moderate_tutor_student_feedback": {
+        "queue": "ai",
     },
 }
 
@@ -213,7 +231,8 @@ PAYOS_API_BASE_URL = config(
 TUTOR_GUARANTEE_REQUIRED_AMOUNT = config(
     "TUTOR_GUARANTEE_REQUIRED_AMOUNT", default="200000.00"
 )
-TUTOR_COMMISSION_RATE = config("TUTOR_COMMISSION_RATE", default="0.10")
+BOOKING_DEPOSIT_RATE = config("BOOKING_DEPOSIT_RATE", default="0.20")
+TUTOR_COMMISSION_RATE = config("TUTOR_COMMISSION_RATE", default="0.15")
 TUTOR_COMMISSION_DUE_DAYS = config("TUTOR_COMMISSION_DUE_DAYS", default=7, cast=int)
 
 SOCIAL_AUTH_PIPELINE = (

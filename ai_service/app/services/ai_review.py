@@ -42,6 +42,7 @@ class ReviewInput:
     complete_profile: bool = False
     has_portrait: bool = False
     has_id_card: bool = False
+    identity_number_valid: bool = False
     has_certificate: bool = False
     id_ocr_readable: bool = False
     certificate_ocr_readable: bool = False
@@ -254,7 +255,7 @@ class ScoringService:
 
         add(data.complete_profile, 10, "Thông tin cá nhân tương đối đầy đủ.", "Thiếu một số thông tin cá nhân.")
         add(data.has_portrait, 10, "Có ảnh chân dung.", "Thiếu ảnh chân dung.")
-        add(data.has_id_card and data.id_ocr_readable, 15, "CCCD có thể OCR được.", "Thiếu CCCD hoặc OCR CCCD không đọc được.")
+        add(data.has_id_card and data.id_ocr_readable, 15, "CCCD có thể OCR được hoặc đã nhập số CCCD hợp lệ.", "Thiếu CCCD hoặc OCR CCCD không đọc được.")
         add(data.has_certificate and data.certificate_ocr_readable, 15, "Bằng cấp/chứng chỉ có thể OCR được.", "Thiếu bằng cấp/chứng chỉ hoặc OCR không đọc được.")
         add(data.identity_matches_form, 15, "Thông tin CCCD khớp form.", "Thông tin CCCD chưa khớp form.")
         add(data.certificate_matches_name, 10, "Bằng cấp/chứng chỉ khớp tên gia sư.", "Tên trên bằng cấp/chứng chỉ chưa khớp.")
@@ -311,9 +312,12 @@ class AIReviewService:
         id_front = self._content(files.get("id_front"))
         id_back = self._content(files.get("id_back"))
         certificates = [content for content in (self._content(file) for file in files.get("certificates", [])) if content]
+        cccd_number = re.sub(r"\s+", "", str(profile.get("cccd_number", "") or ""))
+        identity_number_valid = bool(re.fullmatch(r"\d{12}", cccd_number))
 
         has_portrait = bool(portrait)
-        has_id_card = bool(id_front and id_back)
+        has_physical_id_card = bool(id_front and id_back)
+        has_id_card = has_physical_id_card or identity_number_valid
         has_certificate = bool(certificates)
         if not has_portrait:
             warning_flags.append("MISSING_PORTRAIT")
@@ -322,12 +326,13 @@ class AIReviewService:
         if not has_certificate:
             warning_flags.append("MISSING_CERTIFICATE")
 
-        id_info = self.ocr.extract_identity_info(id_front) if has_id_card else {"text": "", "full_name": "", "birthday": ""}
-        id_back_text = self.ocr.extract_text(id_back) if has_id_card else ""
+        id_info = self.ocr.extract_identity_info(id_front) if has_physical_id_card else {"text": "", "full_name": "", "birthday": ""}
+        id_back_text = self.ocr.extract_text(id_back) if has_physical_id_card else ""
         raw_ocr["identity_card_front"] = id_info
         raw_ocr["identity_card_back"] = {"text": id_back_text}
-        id_ocr_readable = bool((id_info.get("text") or "").strip())
-        if has_id_card and not id_ocr_readable:
+        raw_ai["identity_number"] = {"provided": bool(cccd_number), "is_valid": identity_number_valid}
+        id_ocr_readable = bool((id_info.get("text") or "").strip()) or identity_number_valid
+        if has_physical_id_card and not id_ocr_readable:
             warning_flags.append("OCR_FAILED")
 
         certificate_texts = []
@@ -339,8 +344,8 @@ class AIReviewService:
         if has_certificate and not certificate_ocr_readable:
             warning_flags.append("OCR_FAILED")
 
-        identity_matches = self._identity_matches_form(profile, id_info)
-        if has_id_card and id_ocr_readable and not identity_matches:
+        identity_matches = identity_number_valid or self._identity_matches_form(profile, id_info)
+        if has_physical_id_card and id_ocr_readable and not identity_matches:
             warning_flags.append("IDENTITY_MISMATCH")
 
         certificate_matches = self._certificate_matches_name(str(profile.get("full_name", "")), certificate_texts)
@@ -353,10 +358,10 @@ class AIReviewService:
             warning_flags.append("LOW_IMAGE_AUTHENTICITY")
             unreadable_files += 1 if "UNREADABLE_FILE" in portrait_authenticity.get("issues", []) else 0
 
-        face_result = self.face_matching.compare_faces(id_front, portrait) if has_id_card and has_portrait else {"is_match": False}
+        face_result = self.face_matching.compare_faces(id_front, portrait) if has_physical_id_card and has_portrait else {"is_match": False}
         raw_ai["face_matching"] = face_result
         face_match = bool(face_result.get("is_match"))
-        if has_id_card and has_portrait and face_result.get("score") is not None and not face_match:
+        if has_physical_id_card and has_portrait and face_result.get("score") is not None and not face_match:
             warning_flags.append("FACE_MISMATCH")
 
         description_result = self.llm.analyze_description(str(profile.get("bio", "")))
@@ -378,6 +383,7 @@ class AIReviewService:
             complete_profile=not missing_fields,
             has_portrait=has_portrait,
             has_id_card=has_id_card,
+            identity_number_valid=identity_number_valid,
             has_certificate=has_certificate,
             id_ocr_readable=id_ocr_readable,
             certificate_ocr_readable=certificate_ocr_readable,

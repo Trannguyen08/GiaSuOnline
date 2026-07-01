@@ -70,3 +70,10 @@ class OTPVerifySerializer(serializers.Serializer):
 
 class GoogleAuthSerializer(serializers.Serializer):
     id_token = serializers.CharField(required=True)
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True, required=True)
+    new_password = serializers.CharField(
+        write_only=True, required=True, validators=[validate_password]
+    )

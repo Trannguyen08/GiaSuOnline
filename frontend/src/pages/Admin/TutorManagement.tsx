@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CreditCard, Eye, Search, ShieldAlert, X } from 'lucide-react';
+import { BrainCircuit, CheckCircle2, CreditCard, Eye, Loader2, Search, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { adminApi } from '../../api/admin';
 import { useAdminStore } from '../../store/useAdminStore';
@@ -25,6 +25,31 @@ const statusLabel: Record<string, string> = {
   LOCKED: 'Bị khóa',
 };
 
+const aiStatusLabel: Record<string, string> = {
+  PENDING: 'Chờ AI kiểm tra',
+  PROCESSING: 'AI đang kiểm tra',
+  COMPLETED: 'Đã có AI review',
+  FAILED: 'AI review lỗi',
+};
+
+const aiRiskLabel: Record<string, string> = {
+  LOW: 'Rủi ro thấp',
+  MEDIUM: 'Cần xem kỹ',
+  HIGH: 'Rủi ro cao',
+};
+
+const aiRiskClass: Record<string, string> = {
+  LOW: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  MEDIUM: 'border-amber-200 bg-amber-50 text-amber-700',
+  HIGH: 'border-rose-200 bg-rose-50 text-rose-700',
+};
+
+const toTextList = (value: any) => {
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (typeof value === 'string' && value.trim()) return [value.trim()];
+  return [];
+};
+
 const StatusBadge = ({ tutor }: { tutor: any }) => {
   const status = tutor.registration_status || tutor.status || 'PENDING';
   const isLocked = tutor.user && tutor.user.is_active === false;
@@ -42,6 +67,136 @@ const StatusBadge = ({ tutor }: { tutor: any }) => {
     <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${className}`}>
       {statusLabel[effectiveStatus] || effectiveStatus}
     </span>
+  );
+};
+
+const AIReviewBadge = ({ review }: { review?: any }) => {
+  if (!review) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-500">
+        <BrainCircuit className="h-3.5 w-3.5" />
+        Chưa có AI
+      </span>
+    );
+  }
+
+  if (review.status === 'PENDING' || review.status === 'PROCESSING') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {aiStatusLabel[review.status] || review.status}
+      </span>
+    );
+  }
+
+  if (review.status === 'FAILED') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700">
+        <TriangleAlert className="h-3.5 w-3.5" />
+        AI lỗi
+      </span>
+    );
+  }
+
+  const score = Number(review.pass_score || 0);
+  const className =
+    score >= 80
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : score >= 60
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-rose-200 bg-rose-50 text-rose-700';
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>
+      <BrainCircuit className="h-3.5 w-3.5" />
+      AI {score}/100
+    </span>
+  );
+};
+
+const AIReviewPanel = ({ review }: { review?: any }) => {
+  const goodPoints = toTextList(review?.good_points);
+  const badPoints = toTextList(review?.bad_points);
+  const missingFields = toTextList(review?.missing_fields);
+  const warningFlags = toTextList(review?.warning_flags);
+  const score = Number(review?.pass_score || 0);
+
+  return (
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-indigo-700">
+            <BrainCircuit className="h-5 w-5" />
+            <h4 className="text-sm font-extrabold uppercase tracking-widest">AI review hồ sơ</h4>
+          </div>
+          <p className="mt-2 text-sm font-semibold text-slate-600">
+            {review ? aiStatusLabel[review.status] || review.status : 'Chưa có bản AI review cho hồ sơ này.'}
+          </p>
+        </div>
+        <AIReviewBadge review={review} />
+      </div>
+
+      {!review ? (
+        <div className="mt-4 rounded-xl border border-dashed border-indigo-200 bg-white/70 p-4 text-sm font-semibold text-slate-500">
+          Hồ sơ cũ có thể chưa được tạo review tự động.
+        </div>
+      ) : review.status === 'FAILED' ? (
+        <div className="mt-4 rounded-xl border border-rose-100 bg-white p-4 text-sm font-semibold text-rose-600">
+          {review.error_message || 'AI review không hoàn tất. Vui lòng kiểm tra hồ sơ thủ công trước khi duyệt.'}
+        </div>
+      ) : review.status === 'PENDING' || review.status === 'PROCESSING' ? (
+        <div className="mt-4 rounded-xl border border-blue-100 bg-white p-4 text-sm font-semibold text-blue-700">
+          AI đang xử lý hồ sơ. Nên đợi kết quả trước khi bấm duyệt.
+        </div>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs font-bold text-slate-400">Điểm pass</p>
+              <p className="mt-1 text-2xl font-black text-slate-900">{score}/100</p>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs font-bold text-slate-400">Mức rủi ro</p>
+              <span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-extrabold ${aiRiskClass[review.risk_level] || aiRiskClass.HIGH}`}>
+                {aiRiskLabel[review.risk_level] || review.risk_level || '---'}
+              </span>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs font-bold text-slate-400">Gợi ý</p>
+              <p className="mt-1 text-sm font-extrabold text-slate-800">{review.admin_suggestion || 'Không có ghi chú.'}</p>
+            </div>
+          </div>
+
+          {(warningFlags.length > 0 || badPoints.length > 0 || missingFields.length > 0) && (
+            <div className="rounded-xl border border-amber-100 bg-white p-4">
+              <div className="mb-2 flex items-center gap-2 text-amber-700">
+                <TriangleAlert className="h-4 w-4" />
+                <p className="text-sm font-extrabold">Điểm cần admin xem kỹ</p>
+              </div>
+              <ul className="space-y-1 text-sm font-semibold text-slate-700">
+                {[...warningFlags, ...badPoints, ...missingFields].slice(0, 6).map((item, index) => (
+                  <li key={`${item}-${index}`}>- {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {goodPoints.length > 0 && (
+            <div className="rounded-xl border border-emerald-100 bg-white p-4">
+              <div className="mb-2 flex items-center gap-2 text-emerald-700">
+                <CheckCircle2 className="h-4 w-4" />
+                <p className="text-sm font-extrabold">Điểm đạt</p>
+              </div>
+              <ul className="space-y-1 text-sm font-semibold text-slate-700">
+                {goodPoints.slice(0, 5).map((item, index) => (
+                  <li key={`${item}-${index}`}>- {item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -72,6 +227,22 @@ const TutorProfileModal = ({
   onLock: () => void;
   onDeductCommission: () => void;
 }) => {
+  const avatarUrl = tutor.avatar_url || tutor.user?.avatar_url || '';
+  const initials = (tutor.full_name || tutor.user_email || 'GS')
+    .split(' ')
+    .filter(Boolean)
+    .slice(-2)
+    .map((part: string) => part[0])
+    .join('')
+    .toUpperCase();
+  const teachingLevels = Array.isArray(tutor.teaching_levels)
+    ? tutor.teaching_levels.filter(Boolean).join(', ')
+    : tutor.teaching_levels || '';
+  const registeredSubjects =
+    tutor.subjects_text ||
+    (Array.isArray(tutor.subjects)
+      ? tutor.subjects.map((subject: any) => subject.subject_name || subject.name).filter(Boolean).join(', ')
+      : '');
   const identityDocuments = [
     ['CCCD mặt trước', tutor.id_front_url],
     ['CCCD mặt sau', tutor.id_back_url],
@@ -128,11 +299,19 @@ const TutorProfileModal = ({
           <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="flex items-center gap-4 border-b border-slate-100 pb-5">
-                <img
-                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(tutor.full_name || tutor.user_email || 'tutor')}`}
-                  alt={tutor.full_name}
-                  className="h-16 w-16 rounded-full border border-slate-200 bg-slate-50"
-                />
+                {avatarUrl ? (
+                  <a href={avatarUrl} target="_blank" rel="noreferrer" className="shrink-0">
+                    <img
+                      src={avatarUrl}
+                      alt={tutor.full_name}
+                      className="h-20 w-20 rounded-2xl border border-slate-200 bg-slate-50 object-cover"
+                    />
+                  </a>
+                ) : (
+                  <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-slate-200 bg-slate-100 text-xl font-black text-slate-500">
+                    {initials || 'GS'}
+                  </div>
+                )}
                 <div className="min-w-0">
                   <h3 className="truncate text-lg font-extrabold text-slate-900">{tutor.full_name}</h3>
                   <p className="mt-1 text-sm font-semibold text-slate-500">
@@ -147,9 +326,13 @@ const TutorProfileModal = ({
               <div className="mt-5 divide-y divide-slate-100">
                 <DetailRow label="Email" value={tutor.user?.email || tutor.user_email || '---'} />
                 <DetailRow label="Số điện thoại" value={tutor.user?.phone || '---'} />
+                <DetailRow label="Số CCCD" value={tutor.cccd_number || '---'} />
                 <DetailRow label="Ngày sinh" value={tutor.birthday ? formatDate(tutor.birthday) : '---'} />
                 <DetailRow label="Trình độ" value={tutor.qualification || '---'} />
                 <DetailRow label="Trường đại học" value={tutor.university || '---'} />
+                <DetailRow label="Số năm kinh nghiệm" value={`${Number(tutor.experience_years || 0)} năm`} />
+                <DetailRow label="Môn dạy" value={registeredSubjects || '---'} />
+                <DetailRow label="Đối tượng dạy" value={teachingLevels || '---'} />
                 <DetailRow label="Địa chỉ" value={tutor.address || '---'} />
                 <DetailRow label="Ngày đăng ký" value={formatDate(tutor.created_at)} />
               </div>
@@ -157,6 +340,8 @@ const TutorProfileModal = ({
 
             <section className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="space-y-6">
+                {mode === 'approval' && <AIReviewPanel review={tutor.latest_ai_review} />}
+
                 {mode === 'management' && (
                   <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -208,13 +393,8 @@ const TutorProfileModal = ({
                 </div>
 
                 <div>
-                  <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">Bằng cấp</h4>
-                  <div className="max-w-sm">{renderMediaCard('Bằng cấp', tutor.degree_image_url)}</div>
-                </div>
-
-                <div>
                   <h4 className="mb-3 text-sm font-extrabold uppercase tracking-widest text-slate-500">
-                    Thành tích nổi bật
+                    Chứng chỉ / thành tích nổi bật
                   </h4>
                   {tutor.achievements?.length > 0 ? (
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
@@ -439,6 +619,11 @@ const TutorManagement: React.FC<TutorManagementProps> = ({ mode = 'management' }
                     <td className="px-6 py-4 text-sm font-semibold text-slate-600">{formatDate(tutor.created_at)}</td>
                     <td className="px-6 py-4">
                       <StatusBadge tutor={tutor} />
+                      {mode === 'approval' && (
+                        <div className="mt-2">
+                          <AIReviewBadge review={tutor.latest_ai_review} />
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
