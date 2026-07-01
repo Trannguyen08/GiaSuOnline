@@ -10,7 +10,7 @@ import {
   Star,
   UserRound,
 } from 'lucide-react';
-import api from '../api/client';
+import { publicClient } from '../api/client';
 import { bookingsApi } from '../api/bookings';
 import { useToast } from '../components/ui/Toast';
 
@@ -103,9 +103,9 @@ const TutorDetail: React.FC = () => {
       setLoading(true);
       try {
         const [profileRes, slotData, reviewRes] = await Promise.all([
-          api.get(`/tutors/public/${id}/`),
+          publicClient.get(`/tutors/public/${id}/`),
           bookingsApi.getPublicTutorSlots(id!),
-          api.get(`/tutors/public/${id}/reviews/`),
+          publicClient.get(`/tutors/public/${id}/reviews/`),
         ]);
         if (!mounted) return;
         setTutor(profileRes.data);

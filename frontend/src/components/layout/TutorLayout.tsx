@@ -7,11 +7,9 @@ import {
   LayoutDashboard,
   LifeBuoy,
   LogOut,
-  MessageCircle,
   Settings,
   Star,
   Users,
-  Wallet,
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { clearAuth, getStoredUser } from '../../utils/auth';
@@ -34,11 +32,8 @@ const TutorLayout: React.FC = () => {
     { icon: BookOpen, label: 'Booking', path: '/tutor/bookings' },
     { icon: Users, label: 'Học sinh', path: '/tutor/students' },
     { icon: GraduationCap, label: 'Khóa học', path: '/tutor/courses' },
-    { icon: BookOpen, label: 'Room học', path: '/tutor/rooms' },
     { icon: Star, label: 'Đánh giá', path: '/tutor/reviews' },
     { icon: LifeBuoy, label: 'Hỗ trợ', path: '/tutor/support' },
-    { icon: Wallet, label: 'Thu nhập', path: '/tutor/earnings' },
-    { icon: MessageCircle, label: 'Tin nhắn', path: '/tutor/messages' },
     { icon: Settings, label: 'Hồ sơ', path: '/tutor/settings' },
   ];
 
@@ -89,7 +84,7 @@ const TutorLayout: React.FC = () => {
           </div>
         </header>
 
-        <main className="flex-1 p-10">
+        <main className="flex-1 bg-[#fcfdff] p-10">
           <Outlet />
         </main>
       </div>

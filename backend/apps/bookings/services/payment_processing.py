@@ -1,10 +1,12 @@
 from decimal import Decimal
-from datetime import timedelta
+from datetime import datetime, timedelta
+import re
 
 from django.db import transaction
 from django.utils import timezone
 
 from apps.courses.models import Course, CourseSession
+from core.cache_utils import invalidate_cache_groups
 
 from ..emails import send_deposit_paid_email
 from ..models import Booking
@@ -41,6 +43,139 @@ def calculate_booking_session_count(booking):
     return len(booking.selected_slot_ids or []) or 1
 
 
+def parse_schedule_time(value):
+    if not value:
+        return None
+    match = re.search(r"(\d{1,2}):(\d{2})", str(value))
+    if not match:
+        return None
+    return datetime.strptime(match.group(0), "%H:%M").time()
+
+
+def schedule_patterns_from_booking(booking):
+    patterns = []
+    for item in booking.selected_schedules or []:
+        if not isinstance(item, dict) or item.get("day") is None:
+            continue
+        label = item.get("label", "")
+        parts = str(label).split(",", 1)
+        time_part = parts[1] if len(parts) > 1 else label
+        start_text, _, end_text = time_part.partition("-")
+        start_time = parse_schedule_time(item.get("start_time") or start_text)
+        end_time = parse_schedule_time(item.get("end_time") or end_text)
+        if not start_time or not end_time:
+            continue
+        patterns.append(
+            {
+                "weekday": 6 if int(item.get("day")) == 0 else int(item.get("day")) - 1,
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
+    return patterns
+
+
+def build_course_session_occurrences(booking, slots):
+    slot_patterns = schedule_patterns_from_booking(booking)
+    if slot_patterns and booking.study_start_date and booking.study_end_date:
+        current = booking.study_start_date
+        occurrences = []
+        while current <= booking.study_end_date:
+            for pattern in slot_patterns:
+                if current.weekday() == pattern["weekday"]:
+                    occurrences.append(
+                        {
+                            "date": current,
+                            "start_time": pattern["start_time"],
+                            "end_time": pattern["end_time"],
+                        }
+                    )
+            current += timedelta(days=1)
+        if occurrences:
+            return occurrences
+
+    pattern_map = {
+        (
+            timezone.localtime(slot.start_time).weekday(),
+            timezone.localtime(slot.start_time).time(),
+            timezone.localtime(slot.end_time).time(),
+        ): {
+            "weekday": timezone.localtime(slot.start_time).weekday(),
+            "start_time": timezone.localtime(slot.start_time).time(),
+            "end_time": timezone.localtime(slot.end_time).time(),
+        }
+        for slot in slots
+    }
+    slot_patterns = list(pattern_map.values())
+
+    if booking.study_start_date and booking.study_end_date:
+        current = booking.study_start_date
+        occurrences = []
+        while current <= booking.study_end_date:
+            for pattern in slot_patterns:
+                if current.weekday() == pattern["weekday"]:
+                    occurrences.append(
+                        {
+                            "date": current,
+                            "start_time": pattern["start_time"],
+                            "end_time": pattern["end_time"],
+                        }
+                    )
+            current += timedelta(days=1)
+        if occurrences:
+            return occurrences
+
+    if slots:
+        return [
+            {
+                "date": timezone.localtime(slot.start_time).date(),
+                "start_time": timezone.localtime(slot.start_time).time(),
+                "end_time": timezone.localtime(slot.end_time).time(),
+            }
+            for slot in slots
+        ]
+
+    return [
+        {
+            "date": timezone.localtime(booking.start_time).date(),
+            "start_time": timezone.localtime(booking.start_time).time(),
+            "end_time": timezone.localtime(booking.end_time).time(),
+        }
+    ]
+
+
+def append_course_sessions(course, booking, slots, total_sessions):
+    occurrences = build_course_session_occurrences(booking, slots)
+    start_number = course.sessions.count() + 1
+
+    for index in range(total_sessions):
+        occurrence = occurrences[index] if index < len(occurrences) else None
+        session_number = start_number + index
+        CourseSession.objects.create(
+            course=course,
+            session_number=session_number,
+            title=f"Buoi {session_number}",
+            scheduled_date=occurrence["date"] if occurrence else None,
+            scheduled_time=occurrence["start_time"] if occurrence else None,
+        )
+
+
+def sync_confirmed_teaching_slots(booking, slots):
+    for slot in slots:
+        update_fields = []
+        if slot.status != "booked":
+            slot.status = "booked"
+            update_fields.append("status")
+        if slot.confirmed_booking_id != booking.id:
+            slot.confirmed_booking = booking
+            update_fields.append("confirmed_booking")
+        if not slot.note and booking.notes:
+            slot.note = booking.notes
+            update_fields.append("note")
+        if update_fields:
+            slot.save(update_fields=update_fields)
+
+
 def create_course_from_booking(booking):
     slots = list(
         booking.tutor.teaching_slots.filter(id__in=booking.selected_slot_ids or [])
@@ -54,11 +189,18 @@ def create_course_from_booking(booking):
         if isinstance(item, dict) and item.get("label")
     ]
     total_sessions = calculate_booking_session_count(booking)
+    schedule_patterns = schedule_patterns_from_booking(booking)
+    first_schedule = schedule_patterns[0] if schedule_patterns else None
     session_duration_minutes = max(
         30,
         int(
             (
-                (first_slot.end_time - first_slot.start_time)
+                (
+                    datetime.combine(booking.study_start_date, first_schedule["end_time"])
+                    - datetime.combine(booking.study_start_date, first_schedule["start_time"])
+                )
+                if first_schedule and booking.study_start_date
+                else (first_slot.end_time - first_slot.start_time)
                 if first_slot
                 else (booking.end_time - booking.start_time)
             ).total_seconds()
@@ -69,6 +211,41 @@ def create_course_from_booking(booking):
         Decimal(str(session_duration_minutes)) / Decimal("60") * Decimal(total_sessions)
     )
     hourly_rate = booking.total_price / total_course_hours if total_course_hours else 0
+    existing_course = (
+        Course.objects.filter(tutor=booking.tutor, student=booking.student)
+        .exclude(status__in=["completed", "cancelled"])
+        .order_by("-created_at")
+        .first()
+    )
+    if existing_course and existing_course.booking_id != booking.id:
+        existing_course.total_sessions += total_sessions
+        if booking.study_end_date or booking.end_time:
+            new_end_date = booking.study_end_date or booking.end_time.date()
+            if not existing_course.end_date or new_end_date > existing_course.end_date:
+                existing_course.end_date = new_end_date
+        if schedule_labels:
+            existing_labels = [
+                item.strip()
+                for item in existing_course.schedule_time.split(",")
+                if item.strip()
+            ]
+            existing_course.schedule_time = ", ".join(
+                dict.fromkeys(existing_labels + schedule_labels)
+            )
+        existing_course.status = "active"
+        existing_course.save(
+            update_fields=[
+                "total_sessions",
+                "end_date",
+                "schedule_time",
+                "status",
+                "updated_at",
+            ]
+        )
+        append_course_sessions(existing_course, booking, slots, total_sessions)
+        sync_confirmed_teaching_slots(booking, slots)
+        return existing_course
+
     course, created = Course.objects.get_or_create(
         booking=booking,
         defaults={
@@ -88,13 +265,8 @@ def create_course_from_booking(booking):
         },
     )
     if created:
-        CourseSession.objects.create(
-            course=course,
-            session_number=1,
-            title="Buoi hoc dau tien",
-            scheduled_date=booking.start_time.date(),
-            scheduled_time=booking.start_time.time(),
-        )
+        append_course_sessions(course, booking, slots, total_sessions)
+    sync_confirmed_teaching_slots(booking, slots)
     return course
 
 
@@ -136,5 +308,8 @@ def process_booking_payment(booking_id):
 
         if should_notify_tutor:
             transaction.on_commit(lambda: send_deposit_paid_email(booking))
+            transaction.on_commit(
+                lambda: invalidate_cache_groups("bookings", "courses", "tutors")
+            )
 
     return payos_status.lower()

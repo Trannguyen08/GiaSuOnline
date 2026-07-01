@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, Phone, Search, Users } from 'lucide-react';
+import { Search, Users } from 'lucide-react';
 import { bookingsApi } from '../api/bookings';
+
+const formatDate = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
+};
 
 const TutorStudents: React.FC = () => {
   const [students, setStudents] = useState<any[]>([]);
@@ -20,7 +27,18 @@ const TutorStudents: React.FC = () => {
   }, []);
 
   const filtered = students.filter(student => {
-    const keyword = `${student.username} ${student.email} ${student.phone || ''}`.toLowerCase();
+    const info = student.student_info || {};
+    const keyword = [
+      student.username,
+      student.email,
+      student.phone,
+      info.fullName,
+      info.phone,
+      info.email,
+      info.address,
+      info.currentLevel,
+      student.subject_name,
+    ].filter(Boolean).join(' ').toLowerCase();
     return keyword.includes(search.toLowerCase());
   });
 
@@ -29,7 +47,7 @@ const TutorStudents: React.FC = () => {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Quản lý học viên</h1>
-          <p className="text-sm text-slate-500 mt-1">Danh sách học sinh đã đăng ký lịch học với bạn.</p>
+          <p className="text-sm text-slate-500 mt-1">Danh sách học sinh đã thanh toán cọc và bắt đầu học với bạn.</p>
         </div>
         <div className="bg-white rounded-2xl px-5 py-3 border border-slate-100 flex items-center gap-3">
           <Users className="w-5 h-5 text-indigo-600" />
@@ -45,7 +63,7 @@ const TutorStudents: React.FC = () => {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Tìm theo tên, email hoặc số điện thoại"
+          placeholder="Tìm theo tên, email, số điện thoại hoặc trình độ"
           className="flex-1 outline-none text-sm font-medium"
         />
       </div>
@@ -58,34 +76,70 @@ const TutorStudents: React.FC = () => {
           <p className="text-slate-500 font-semibold">Chưa có học viên phù hợp.</p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-5">
-          {filtered.map(student => (
-            <div key={student.id} className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
-              <div className="flex items-start gap-4">
-                <img
-                  src={student.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(student.username || student.email)}&background=e0e7ff&color=4338ca`}
-                  alt={student.username}
-                  className="w-16 h-16 rounded-2xl object-cover border border-slate-100"
-                />
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-extrabold text-slate-900 truncate">{student.username || student.email}</h3>
-                  <p className="text-sm text-slate-500 line-clamp-2 mt-1">{student.bio || 'Chưa cập nhật giới thiệu.'}</p>
-                </div>
-              </div>
-              <div className="mt-5 space-y-2 text-sm">
-                <div className="flex items-center gap-2 text-slate-500">
-                  <Mail className="w-4 h-4 text-indigo-500" />
-                  <span className="truncate">{student.email}</span>
-                </div>
-                {student.phone && (
-                  <div className="flex items-center gap-2 text-slate-500">
-                    <Phone className="w-4 h-4 text-emerald-500" />
-                    <span>{student.phone}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="min-w-[1100px] w-full text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-black uppercase text-slate-400">
+                <tr>
+                  <th className="px-5 py-4">Học viên</th>
+                  <th className="px-5 py-4">Liên hệ</th>
+                  <th className="px-5 py-4">Địa chỉ</th>
+                  <th className="px-5 py-4">Trình độ</th>
+                  <th className="px-5 py-4">Môn học</th>
+                  <th className="px-5 py-4">Thời gian học</th>
+                  <th className="px-5 py-4">Ghi chú</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map(student => {
+                  const info = student.student_info || {};
+                  const displayName = info.fullName || student.username || student.email;
+                  const displayPhone = info.phone || student.phone;
+                  const displayEmail = info.email || student.email;
+                  const dateRange = [formatDate(student.study_start_date), formatDate(student.study_end_date)]
+                    .filter(Boolean)
+                    .join(' - ');
+
+                  return (
+                    <tr key={student.id} className="align-top hover:bg-slate-50/70">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={student.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=e0e7ff&color=4338ca`}
+                            alt={displayName}
+                            className="h-11 w-11 rounded-xl border border-slate-100 object-cover"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-extrabold text-slate-900">{displayName}</p>
+                            <p className="text-xs font-semibold text-slate-400">#{student.booking_id}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-slate-700">{displayPhone || '—'}</p>
+                        <p className="mt-1 max-w-[220px] truncate text-xs font-semibold text-slate-400">{displayEmail}</p>
+                      </td>
+                      <td className="px-5 py-4 max-w-[220px] text-slate-600">
+                        {info.address || '—'}
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-slate-700">
+                        {info.currentLevel || '—'}
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-slate-700">
+                        {student.subject_name || '—'}
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-slate-700">
+                        {dateRange || '—'}
+                      </td>
+                      <td className="px-5 py-4 max-w-[260px] text-slate-600">
+                        {info.note || student.notes || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

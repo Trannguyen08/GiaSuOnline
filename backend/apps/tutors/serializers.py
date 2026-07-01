@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from rest_framework import serializers
+from django.utils.text import slugify
 from .models import (
     TutorProfile,
     TutorGuaranteeTransaction,
@@ -22,11 +23,47 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 class TutorSubjectSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all(), required=False
+    )
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_input = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = TutorSubject
-        fields = ["id", "subject", "subject_name", "level", "hourly_rate", "is_active"]
+        fields = [
+            "id",
+            "subject",
+            "subject_name",
+            "subject_input",
+            "level",
+            "hourly_rate",
+            "is_active",
+        ]
+
+
+def unique_subject_slug(name):
+    base = slugify(name) or "subject"
+    slug = base
+    suffix = 2
+    while Subject.objects.filter(slug=slug).exists():
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    return slug
+
+
+def get_or_create_subject_by_name(name):
+    clean_name = " ".join((name or "").split())
+    if not clean_name:
+        return None
+    existing = Subject.objects.filter(name__iexact=clean_name).first()
+    if existing:
+        return existing
+    return Subject.objects.create(
+        name=clean_name,
+        slug=unique_subject_slug(clean_name),
+        category="Tự nhập",
+    )
 
 
 class TutorEducationSerializer(serializers.ModelSerializer):
@@ -245,11 +282,19 @@ class TutorProfileSerializer(serializers.ModelSerializer):
         instance.save()
 
         if tutor_subjects_data is not None:
+            seen_subject_names = set()
             for item in tutor_subjects_data:
-                subject_id = item.get("subject")
-                if not subject_id:
+                subject_obj = item.get("subject")
+                if not subject_obj:
+                    subject_obj = get_or_create_subject_by_name(item.get("subject_input", ""))
+                if not subject_obj:
                     continue
-                subject_obj = subject_id
+                normalized_name = subject_obj.name.strip().lower()
+                if normalized_name in seen_subject_names:
+                    raise serializers.ValidationError(
+                        {"tutor_subjects": "Tên môn không được trùng nhau."}
+                    )
+                seen_subject_names.add(normalized_name)
                 item_id = item.get("id")
                 defaults = {
                     "subject": subject_obj,

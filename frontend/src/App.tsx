@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import Header from './components/layout/Header/Header';
 import Footer from './components/layout/Footer/Footer';
 import Login from './pages/Auth/Login';
@@ -19,7 +19,6 @@ import TutorDashboard from './pages/TutorDashboard';
 import TutorSchedule from './pages/TutorSchedule';
 import TutorStudents from './pages/TutorStudents';
 import TutorSettings from './pages/TutorSettings';
-import TutorRooms from './pages/TutorRooms';
 import TutorBookings from './pages/TutorBookings';
 import TutorReviews from './pages/TutorReviews';
 import TutorSupportCases from './pages/TutorSupportCases';
@@ -27,7 +26,7 @@ import StudyRooms from './pages/StudyRooms';
 
 // Course Pages
 import MyCourses from './pages/MyCourses';
-import CourseDetail from './pages/CourseDetail';
+import CourseDetail, { CourseSessionDetail } from './pages/CourseDetail';
 import RegistrationHistory from './pages/RegistrationHistory';
 import PaymentSuccess from './pages/PaymentSuccess';
 import { TutorCourseList, TutorCourseDetail } from './pages/TutorCourseManagement';
@@ -39,6 +38,7 @@ import TutorManagement from './pages/Admin/TutorManagement';
 import UserManagement from './pages/Admin/UserManagement';
 import AdminCourseManagement from './pages/Admin/CourseManagement';
 import AdminFinanceManagement from './pages/Admin/FinanceManagement';
+import CancellationManagement from './pages/Admin/CancellationManagement';
 import {
   AdminNotifications,
   BookingManagement,
@@ -74,6 +74,7 @@ function App() {
               {/* Student Course Pages */}
               <Route path="/my-courses" element={<MyCourses />} />
               <Route path="/my-courses/:id" element={<CourseDetail />} />
+              <Route path="/my-courses/:id/sessions/:sessionId" element={<CourseSessionDetail />} />
               <Route path="/registration-history" element={<RegistrationHistory />} />
               <Route path="/payment/success" element={<PaymentSuccess />} />
               <Route path="/study-rooms" element={<StudyRooms />} />
@@ -85,7 +86,7 @@ function App() {
               <Route path="schedule" element={<TutorSchedule />} />
               <Route path="bookings" element={<TutorBookings />} />
               <Route path="students" element={<TutorStudents />} />
-              <Route path="rooms" element={<TutorRooms />} />
+              <Route path="rooms" element={<Navigate to="/tutor/courses" replace />} />
               <Route path="reviews" element={<TutorReviews />} />
               <Route path="support" element={<TutorSupportCases />} />
               <Route path="settings" element={<TutorSettings />} />
@@ -103,6 +104,7 @@ function App() {
               <Route path="payments" element={<PaymentManagement />} />
               <Route path="slots" element={<SlotManagement />} />
               <Route path="classes" element={<AdminCourseManagement />} />
+              <Route path="course-cancellations" element={<CancellationManagement />} />
               <Route path="finance" element={<AdminFinanceManagement />} />
               <Route path="reviews" element={<ReviewManagement />} />
               <Route path="violations" element={<ViolationManagement />} />

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useTutors } from '../hooks/useTutors';
 import { useDebounce } from '../hooks/useDebounce';
-import api from '../api/client';
+import { publicClient } from '../api/client';
 
 const weekdays = [
   { value: 1, label: 'Thứ 2' },
@@ -87,7 +87,7 @@ const FindTutors: React.FC = () => {
     if (!quickPrompt.trim()) return;
     setQuickLoading(true);
     try {
-      const res = await api.post('/tutors/quick-search/', { prompt: quickPrompt });
+      const res = await publicClient.post('/tutors/quick-search/', { prompt: quickPrompt });
       setQuickResult(res.data);
     } finally {
       setQuickLoading(false);
@@ -121,7 +121,7 @@ const FindTutors: React.FC = () => {
             <div>
               <h2 className="text-xl font-extrabold text-[#1e1b4b]">Tìm gia sư nhanh bằng AI</h2>
               <p className="mt-2 text-sm text-gray-500 leading-relaxed">
-                Nhập tình trạng học viên, mục tiêu, lịch rảnh, ngân sách và yêu cầu với gia sư. Hệ thống sẽ tách ý thành JSON rồi tìm trong dữ liệu thật.
+                Nhập tình trạng học viên, mục tiêu, lịch rảnh, ngân sách và yêu cầu với gia sư. Hệ thống sẽ phân tích và trả về danh sách gia sư phù hợp.
               </p>
               <div className="mt-4 grid gap-2 text-xs text-gray-500">
                 <p><span className="font-bold text-gray-700">Prompt tốt:</span> Học sinh lớp 9 mất gốc Toán, cần ôn thi vào 10, học tối thứ 2 và thứ 5 từ 19h đến 21h, ngân sách dưới 250k/giờ, ưu tiên gia sư ở Hà Nội có kinh nghiệm với THCS.</p>
@@ -146,12 +146,6 @@ const FindTutors: React.FC = () => {
                   </button>
                 )}
               </div>
-              {quickResult?.criteria && (
-                <div className="rounded-2xl bg-indigo-50 p-4 text-xs text-indigo-900">
-                  <p className="font-bold mb-2">JSON đã tách:</p>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap">{JSON.stringify(quickResult.criteria, null, 2)}</pre>
-                </div>
-              )}
             </div>
           </div>
         </section>

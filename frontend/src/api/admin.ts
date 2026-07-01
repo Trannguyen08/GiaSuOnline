@@ -8,6 +8,9 @@ export const adminApi = {
   getCourses: (params?: any) => client.get('/admin/courses/', { params }).then(res => res.data),
   courseAction: (id: number, action: string) =>
     client.post(`/admin/courses/${id}/action/`, { action }).then(res => res.data),
+  getCourseCancellations: (params?: any) => client.get('/admin/course-cancellations/', { params }).then(res => res.data),
+  courseCancellationAction: (id: number, action: string, data?: any) =>
+    client.post(`/admin/course-cancellations/${id}/action/`, { action, ...data }).then(res => res.data),
 
   // Finance
   getFinance: (params?: any) => client.get('/admin/finance/', { params }).then(res => res.data),

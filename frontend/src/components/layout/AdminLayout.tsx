@@ -19,6 +19,7 @@ import {
   Star,
   User as UserIcon,
   Users,
+  XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../ui/Toast';
@@ -40,6 +41,7 @@ const AdminLayout: React.FC = () => {
     { name: 'Thanh toán', path: '/admin/payments', icon: CreditCard },
     { name: 'Lịch dạy', path: '/admin/slots', icon: CalendarClock },
     { name: 'Quản lý lớp học', path: '/admin/classes', icon: BookOpen },
+    { name: 'Yêu cầu hủy khóa', path: '/admin/course-cancellations', icon: XCircle },
     { name: 'Tài chính', path: '/admin/finance', icon: CircleDollarSign },
     { name: 'Đánh giá', path: '/admin/reviews', icon: Star },
     { name: 'Vi phạm', path: '/admin/violations', icon: ShieldAlert },

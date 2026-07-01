@@ -10,25 +10,42 @@ const PaymentSuccess: React.FC = () => {
   const [message, setMessage] = useState('Đang xác nhận thanh toán với PayOS...');
 
   useEffect(() => {
+    const payosReturnedPaid = params.get('status') === 'PAID';
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
     const verify = async () => {
-      try {
-        const booking = await bookingsApi.verifyPayment({
-          orderCode: params.get('orderCode'),
-          bookingId: params.get('bookingId'),
-        });
-        if (booking.payment_status === 'paid') {
-          setStatus('success');
-          setMessage('Thanh toán cọc thành công. Hệ thống đã xác nhận booking và thông báo cho gia sư.');
-          window.setTimeout(() => navigate('/my-courses'), 2200);
-        } else {
-          setStatus('failed');
-          setMessage('PayOS chưa ghi nhận giao dịch thành công. Bạn có thể kiểm tra lại trong lịch sử đăng ký.');
+      const maxAttempts = payosReturnedPaid ? 5 : 1;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const booking = await bookingsApi.verifyPayment({
+            orderCode: params.get('orderCode'),
+            bookingId: params.get('bookingId'),
+          });
+
+          if (booking.payment_status === 'paid') {
+            setStatus('success');
+            setMessage('Thanh toán cọc thành công. Hệ thống đã xác nhận booking và thông báo cho gia sư.');
+            window.setTimeout(() => navigate('/my-courses'), 2200);
+            return;
+          }
+        } catch {
+          if (attempt === maxAttempts) {
+            setStatus('failed');
+            setMessage('Không xác nhận được thanh toán. Vui lòng quay lại lịch sử đăng ký để thử lại.');
+            return;
+          }
         }
-      } catch {
-        setStatus('failed');
-        setMessage('Không xác nhận được thanh toán. Vui lòng quay lại lịch sử đăng ký để thử lại.');
+
+        if (attempt < maxAttempts) {
+          await wait(1200);
+        }
       }
+
+      setStatus('failed');
+      setMessage('PayOS chưa ghi nhận giao dịch thành công. Bạn có thể kiểm tra lại trong lịch sử đăng ký.');
     };
+
     verify();
   }, [navigate, params]);
 

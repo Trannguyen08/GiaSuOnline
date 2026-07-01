@@ -97,6 +97,10 @@ class TeachingSlotSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     tutor_name = serializers.CharField(source="tutor.full_name", read_only=True)
     student_name = serializers.SerializerMethodField()
+    booking_subject_name = serializers.SerializerMethodField()
+    student_phone = serializers.SerializerMethodField()
+    student_address = serializers.SerializerMethodField()
+    is_system_generated = serializers.SerializerMethodField()
 
     class Meta:
         model = TeachingSlot
@@ -113,19 +117,76 @@ class TeachingSlotSerializer(serializers.ModelSerializer):
             "note",
             "status",
             "student_name",
+            "booking_subject_name",
+            "student_phone",
+            "student_address",
+            "is_system_generated",
             "created_at",
         ]
-        read_only_fields = ["id", "tutor", "status", "student_name", "created_at"]
+        read_only_fields = [
+            "id",
+            "tutor",
+            "status",
+            "student_name",
+            "booking_subject_name",
+            "student_phone",
+            "student_address",
+            "is_system_generated",
+            "created_at",
+        ]
+
+    def get_booking(self, obj):
+        booking = getattr(obj, "confirmed_booking", None) or getattr(
+            obj, "booking", None
+        )
+        if booking:
+            return booking
+        if obj.status != "booked":
+            return None
+        return (
+            Booking.objects.filter(
+                tutor=obj.tutor,
+                payment_status="paid",
+                selected_slot_ids__contains=[obj.id],
+            )
+            .select_related("student", "subject")
+            .order_by("-paid_at", "-created_at")
+            .first()
+        )
+
+    def get_is_system_generated(self, obj):
+        return bool(obj.subject_id and getattr(obj, "confirmed_booking_id", None))
 
     def get_student_name(self, obj):
-        booking = getattr(obj, "booking", None)
+        booking = self.get_booking(obj)
         if not booking:
             return None
+        booking_name = (booking.student_info or {}).get("fullName")
+        if booking_name:
+            return booking_name
         return (
             booking.student.get_full_name()
             or booking.student.username
             or booking.student.email
         )
+
+    def get_booking_subject_name(self, obj):
+        booking = self.get_booking(obj)
+        if not booking or not booking.subject:
+            return None
+        return booking.subject.name
+
+    def get_student_phone(self, obj):
+        booking = self.get_booking(obj)
+        if not booking:
+            return None
+        return (booking.student_info or {}).get("phone") or booking.student.phone
+
+    def get_student_address(self, obj):
+        booking = self.get_booking(obj)
+        if not booking:
+            return None
+        return (booking.student_info or {}).get("address")
 
     def validate(self, attrs):
         start_time = attrs.get("start_time", getattr(self.instance, "start_time", None))

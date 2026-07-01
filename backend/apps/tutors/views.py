@@ -121,7 +121,13 @@ class TutorDashboardView(APIView):
                 status="booked",
                 start_time__date=today,
             )
-            .select_related("subject", "booking__student")
+            .select_related(
+                "subject",
+                "booking__student",
+                "booking__subject",
+                "confirmed_booking__student",
+                "confirmed_booking__subject",
+            )
             .order_by("start_time")
         )
         course_sessions = (
@@ -165,6 +171,65 @@ class TutorDashboardView(APIView):
         def user_name(user):
             return user.get_full_name() or user.username or user.email
 
+        def booking_for_slot(slot):
+            return getattr(slot, "confirmed_booking", None) or getattr(
+                slot, "booking", None
+            )
+
+        def booking_student_name(booking):
+            if booking:
+                student_info = booking.student_info or {}
+                for key in ("fullName", "full_name", "name"):
+                    if student_info.get(key):
+                        return student_info[key]
+                return user_name(booking.student)
+            return ""
+
+        booked_slot_booking_ids = {
+            booking.id
+            for booking in (booking_for_slot(slot) for slot in booked_slots)
+            if booking
+        }
+        visible_course_sessions = [
+            session
+            for session in course_sessions
+            if not (
+                session.course.booking_id
+                and session.course.booking_id in booked_slot_booking_ids
+            )
+        ]
+        today_schedule = [
+            {
+                "id": f"slot-{slot.id}",
+                "kind": "slot",
+                "start_time": slot.start_time,
+                "end_time": slot.end_time,
+                "subject": (
+                    getattr(getattr(booking_for_slot(slot), "subject", None), "name", "")
+                    or (slot.subject.name if slot.subject else "")
+                ),
+                "student_name": booking_student_name(booking_for_slot(slot)),
+                "meeting_link": slot.meeting_link,
+            }
+            for slot in booked_slots
+        ] + [
+            {
+                "id": f"session-{session.id}",
+                "kind": "course_session",
+                "start_time": session.scheduled_time,
+                "end_time": None,
+                "subject": session.course.subject.name
+                if session.course.subject
+                else session.course.title,
+                "student_name": (
+                    booking_student_name(getattr(session.course, "booking", None))
+                    or user_name(session.course.student)
+                ),
+                "meeting_link": "",
+            }
+            for session in visible_course_sessions
+        ]
+
         data = {
             "profile": {
                 "id": profile.id,
@@ -178,7 +243,7 @@ class TutorDashboardView(APIView):
                 "total_reviews": profile.total_reviews,
             },
             "summary": {
-                "today_upcoming_count": booked_slots.count() + course_sessions.count(),
+                "today_upcoming_count": len(today_schedule),
                 "pending_booking_count": Booking.objects.filter(
                     tutor=profile, status="pending"
                 ).count(),
@@ -189,34 +254,7 @@ class TutorDashboardView(APIView):
                 "rating_avg": str(profile.rating_avg),
                 "total_reviews": profile.total_reviews,
             },
-            "today_schedule": [
-                {
-                    "id": f"slot-{slot.id}",
-                    "kind": "slot",
-                    "start_time": slot.start_time,
-                    "end_time": slot.end_time,
-                    "subject": slot.subject.name if slot.subject else "",
-                    "student_name": user_name(slot.booking.student)
-                    if getattr(slot, "booking", None)
-                    else "",
-                    "meeting_link": slot.meeting_link,
-                }
-                for slot in booked_slots
-            ]
-            + [
-                {
-                    "id": f"session-{session.id}",
-                    "kind": "course_session",
-                    "start_time": session.scheduled_time,
-                    "end_time": None,
-                    "subject": session.course.subject.name
-                    if session.course.subject
-                    else session.course.title,
-                    "student_name": user_name(session.course.student),
-                    "meeting_link": "",
-                }
-                for session in course_sessions
-            ],
+            "today_schedule": today_schedule,
             "pending_bookings": [
                 {
                     "id": booking.id,

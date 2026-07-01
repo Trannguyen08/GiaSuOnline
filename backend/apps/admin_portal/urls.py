@@ -19,6 +19,8 @@ from .system_views import (
 )
 from .views import (
     AdminCourseActionView,
+    AdminCourseCancellationRequestActionView,
+    AdminCourseCancellationRequestListView,
     AdminCourseListView,
     AdminDashboardStatsView,
     AdminFinanceOverviewView,
@@ -37,6 +39,16 @@ urlpatterns = [
         "courses/<int:pk>/action/",
         AdminCourseActionView.as_view(),
         name="admin-course-action",
+    ),
+    path(
+        "course-cancellations/",
+        AdminCourseCancellationRequestListView.as_view(),
+        name="admin-course-cancellations",
+    ),
+    path(
+        "course-cancellations/<int:pk>/action/",
+        AdminCourseCancellationRequestActionView.as_view(),
+        name="admin-course-cancellation-action",
     ),
     path("finance/", AdminFinanceOverviewView.as_view(), name="admin-finance"),
     path(

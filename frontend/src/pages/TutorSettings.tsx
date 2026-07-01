@@ -1,5 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Camera, CheckCircle2, EyeOff, Image as ImageIcon, Lock, Plus, Save, ShieldCheck, ToggleLeft, ToggleRight } from 'lucide-react';
+import {
+  Camera,
+  CheckCircle2,
+  Edit3,
+  EyeOff,
+  Image as ImageIcon,
+  Lock,
+  Plus,
+  Save,
+  ShieldCheck,
+  ToggleLeft,
+  ToggleRight,
+  X,
+} from 'lucide-react';
 import client from '../api/client';
 import { useToast } from '../components/ui/Toast';
 import { tutorService } from '../services/tutorService';
@@ -8,17 +21,22 @@ import { useTutorStore } from '../store/useTutorStore';
 
 const BIO_MAX_LENGTH = 1000;
 const DEFAULT_RATE = '70000';
+const TEACHING_LEVELS = ['Tiểu học', 'THCS', 'THPT', 'Đại học', 'Người đi làm'];
+
+const normalizeSubjectName = (value?: string) =>
+  (value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 const formatDate = (value?: string | null) => {
   if (!value) return '---';
-  return new Date(value).toLocaleDateString('vi-VN');
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
 };
 
-const formatMoney = (value?: string | number) =>
-  `${Number(value || 0).toLocaleString('vi-VN')}đ`;
+const formatMoney = (value?: string | number) => Number(value || 0).toLocaleString('vi-VN');
 
 const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
-  <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
+  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
     <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{label}</p>
     <div className="mt-1 break-words text-sm font-bold text-slate-800">{value || '---'}</div>
   </div>
@@ -71,6 +89,7 @@ const TutorSettings: React.FC = () => {
   const [subjects, setSubjects] = useState<any[]>([]);
   const [passwordForm, setPasswordForm] = useState({ old_password: '', new_password: '' });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [subjectEditor, setSubjectEditor] = useState<any>(null);
 
   useEffect(() => {
     fetchProfile();
@@ -102,6 +121,7 @@ const TutorSettings: React.FC = () => {
     tutor_subjects: (formData.subjects || []).map((item: any) => ({
       id: item.id,
       subject: item.subject,
+      subject_input: item.subject_name || subjects.find((subject) => String(subject.id) === String(item.subject))?.name || '',
       level: item.level || '',
       hourly_rate: item.hourly_rate || DEFAULT_RATE,
       is_active: item.is_active !== false,
@@ -152,33 +172,84 @@ const TutorSettings: React.FC = () => {
   };
 
   const addSubject = () => {
-    const subject = subjects[0];
-    setFormData((current: any) => ({
-      ...current,
-      subjects: [
-        ...(current.subjects || []),
-        {
-          subject: subject?.id || '',
-          subject_name: subject?.name || '',
-          level: current.teaching_levels?.join(', ') || 'Cơ bản',
-          hourly_rate: DEFAULT_RATE,
-          is_active: true,
-        },
-      ],
-    }));
+    setSubjectEditor({
+      mode: 'add',
+      index: null,
+      data: {
+        subject: '',
+        subject_name: '',
+        level: '',
+        hourly_rate: DEFAULT_RATE,
+        is_active: true,
+      },
+    });
   };
 
-  const updateSubject = (idx: number, key: string, value: any) => {
+  const editSubject = (idx: number) => {
+    setSubjectEditor({
+      mode: 'edit',
+      index: idx,
+      data: { ...(formData.subjects || [])[idx] },
+    });
+  };
+
+  const updateSubjectEditor = (key: string, value: any) => {
+    setSubjectEditor((current: any) => {
+      if (!current) return current;
+      const data = { ...current.data, [key]: value };
+      if (key === 'subject_name') {
+        const existing = subjects.find((subject) => normalizeSubjectName(subject.name) === normalizeSubjectName(value));
+        data.subject = existing?.id || '';
+      }
+      return { ...current, data };
+    });
+  };
+
+  const saveSubjectEditor = () => {
+    const subjectName = (subjectEditor?.data?.subject_name || '').trim().replace(/\s+/g, ' ');
+    if (!subjectName) {
+      showToast('Vui lòng nhập tên môn học.', 'error');
+      return;
+    }
+    const duplicated = (formData.subjects || []).some((item: any, index: number) => {
+      if (subjectEditor.mode === 'edit' && index === subjectEditor.index) return false;
+      const currentName = item.subject_name || subjects.find((subject) => String(subject.id) === String(item.subject))?.name || '';
+      return normalizeSubjectName(currentName) === normalizeSubjectName(subjectName);
+    });
+    if (duplicated) {
+      showToast('Tên môn này đã tồn tại trong hồ sơ.', 'error');
+      return;
+    }
+    if (!subjectEditor?.data?.level) {
+      showToast('Vui lòng chọn đối tượng dạy.', 'error');
+      return;
+    }
+    if (Number(subjectEditor.data.hourly_rate || 0) <= 0) {
+      showToast('Tiền 1h phải lớn hơn 0.', 'error');
+      return;
+    }
     const next = [...(formData.subjects || [])];
-    next[idx] = { ...next[idx], [key]: value };
-    if (key === 'subject') {
-      next[idx].subject_name = subjects.find((subject) => String(subject.id) === String(value))?.name || '';
+    const data = {
+      ...subjectEditor.data,
+      subject_name: subjectName,
+      subject: subjectEditor.data.subject || subjects.find((subject) => normalizeSubjectName(subject.name) === normalizeSubjectName(subjectName))?.id || '',
+      level: subjectEditor.data.level || '',
+      hourly_rate: String(Number(subjectEditor.data.hourly_rate || DEFAULT_RATE)),
+      is_active: subjectEditor.data.is_active !== false,
+    };
+    if (subjectEditor.mode === 'edit' && subjectEditor.index !== null) {
+      next[subjectEditor.index] = data;
+    } else {
+      next.push(data);
     }
     setFormData({ ...formData, subjects: next });
+    setSubjectEditor(null);
   };
 
   const toggleSubject = (idx: number) => {
-    updateSubject(idx, 'is_active', formData.subjects[idx].is_active === false);
+    const next = [...(formData.subjects || [])];
+    next[idx] = { ...next[idx], is_active: next[idx].is_active === false };
+    setFormData({ ...formData, subjects: next });
   };
 
   if (!formData) {
@@ -228,7 +299,7 @@ const TutorSettings: React.FC = () => {
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-lg font-black text-slate-950">Thông tin cá nhân</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-500">Các trường bên trái là dữ liệu xác thực; các trường bên phải có thể cập nhật.</p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">Dữ liệu xác thực được khóa; thông tin công khai có thể cập nhật.</p>
               </div>
               <button
                 onClick={handleSave}
@@ -308,7 +379,7 @@ const TutorSettings: React.FC = () => {
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-black text-slate-950">Môn dạy & học phí</h3>
-            <p className="mt-1 text-sm font-semibold text-slate-500">Tắt môn để ẩn khỏi hồ sơ công khai, dữ liệu vẫn được giữ lại.</p>
+            <p className="mt-1 text-sm font-semibold text-slate-500">Thông tin môn chỉ hiển thị tại đây. Bấm sửa để cập nhật môn, đối tượng và tiền 1h.</p>
           </div>
           <button onClick={addSubject} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 hover:bg-emerald-100">
             <Plus className="h-4 w-4" />
@@ -316,29 +387,41 @@ const TutorSettings: React.FC = () => {
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="overflow-hidden rounded-2xl border border-slate-100">
+          <div className="grid grid-cols-[1.1fr_1fr_160px_140px_96px] bg-slate-50 px-4 py-3 text-[11px] font-black uppercase tracking-widest text-slate-400">
+            <span>Môn</span>
+            <span>Đối tượng</span>
+            <span>Tiền 1h</span>
+            <span>Trạng thái</span>
+            <span className="text-right">Thao tác</span>
+          </div>
           {(formData.subjects || []).map((item: any, idx: number) => (
-            <div key={item.id || idx} className={`grid gap-3 rounded-2xl border p-4 lg:grid-cols-[1fr_1fr_180px_120px] lg:items-end ${item.is_active === false ? 'border-slate-200 bg-slate-50 opacity-75' : 'border-slate-200 bg-white'}`}>
-              <Select label="Môn học" value={item.subject || ''} onChange={(event: any) => updateSubject(idx, 'subject', event.target.value)}>
-                <option value="">Chọn môn</option>
-                {subjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>{subject.name}</option>
-                ))}
-              </Select>
-              <Input label="Cấp độ / mục tiêu" value={item.level || ''} onChange={(event: any) => updateSubject(idx, 'level', event.target.value)} />
-              <Input label="Giá theo giờ" type="number" min="0" value={item.hourly_rate || DEFAULT_RATE} onChange={(event: any) => updateSubject(idx, 'hourly_rate', event.target.value)} />
+            <div key={item.id || idx} className={`grid grid-cols-[1.1fr_1fr_160px_140px_96px] items-center gap-3 border-t border-slate-100 px-4 py-4 ${item.is_active === false ? 'bg-slate-50 text-slate-500' : 'bg-white text-slate-900'}`}>
+              <div>
+                <p className="font-black">{item.subject_name || subjects.find((subject) => String(subject.id) === String(item.subject))?.name || 'Chưa chọn môn'}</p>
+              </div>
+              <p className="text-sm font-bold">{item.level || 'Tùy nhu cầu'}</p>
+              <p className="text-sm font-black text-emerald-700">{formatMoney(item.hourly_rate)}đ</p>
               <button
                 type="button"
                 onClick={() => toggleSubject(idx)}
-                className={`inline-flex h-[46px] items-center justify-center gap-2 rounded-xl text-sm font-black ${item.is_active === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-600 text-white'}`}
+                className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ${item.is_active === false ? 'bg-slate-200 text-slate-600' : 'bg-emerald-50 text-emerald-700'}`}
               >
-                {item.is_active === false ? <EyeOff className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                {item.is_active === false ? <EyeOff className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                 {item.is_active === false ? 'Đang ẩn' : 'Đang dạy'}
+              </button>
+              <button
+                type="button"
+                onClick={() => editSubject(idx)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-600 hover:bg-indigo-100"
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                Sửa
               </button>
             </div>
           ))}
           {(formData.subjects || []).length === 0 && (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm font-semibold text-slate-400">
+            <div className="border-t border-slate-100 bg-slate-50 p-8 text-center text-sm font-semibold text-slate-400">
               Bạn chưa có môn dạy nào.
             </div>
           )}
@@ -386,6 +469,53 @@ const TutorSettings: React.FC = () => {
           </button>
         </div>
       </section>
+
+      {subjectEditor && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-black text-slate-950">{subjectEditor.mode === 'edit' ? 'Sửa môn dạy' : 'Thêm môn dạy'}</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-500">Cập nhật môn, đối tượng học và tiền 1h.</p>
+              </div>
+              <button onClick={() => setSubjectEditor(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-6">
+              <Input
+                label="Môn"
+                value={subjectEditor.data.subject_name || ''}
+                onChange={(event: any) => updateSubjectEditor('subject_name', event.target.value)}
+                placeholder="VD: Toán, Vật lý, IELTS..."
+              />
+              <Select label="Đối tượng" value={subjectEditor.data.level || ''} onChange={(event: any) => updateSubjectEditor('level', event.target.value)}>
+                <option value="" disabled hidden>Chọn đối tượng</option>
+                {TEACHING_LEVELS.map((level) => (
+                  <option key={level} value={level}>{level}</option>
+                ))}
+              </Select>
+              <Input
+                label="Tiền 1h"
+                type="number"
+                min="0"
+                step="1000"
+                value={subjectEditor.data.hourly_rate || DEFAULT_RATE}
+                onChange={(event: any) => updateSubjectEditor('hourly_rate', event.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <button onClick={() => setSubjectEditor(null)} className="rounded-xl bg-white px-5 py-3 text-sm font-black text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100">
+                Hủy
+              </button>
+              <button onClick={saveSubjectEditor} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white hover:bg-emerald-700">
+                <Save className="h-4 w-4" />
+                Lưu môn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

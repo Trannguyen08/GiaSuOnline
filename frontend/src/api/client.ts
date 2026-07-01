@@ -5,6 +5,10 @@ const client = axios.create({
     baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
+export const publicClient = axios.create({
+    baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+});
+
 client.interceptors.request.use((config) => {
     const token = getAccessToken();
     if (token) {

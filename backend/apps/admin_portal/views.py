@@ -16,7 +16,7 @@ from apps.users.services.tutor_registration import (
     reject_tutor_registration,
 )
 from apps.bookings.models import Booking
-from apps.courses.models import Course, CourseCommission
+from apps.courses.models import Course, CourseCancellationRequest, CourseCommission
 from apps.tutors.models import TutorGuaranteeTransaction
 from apps.tutors.services.guarantee import (
     accrue_course_commission,
@@ -25,9 +25,11 @@ from apps.tutors.services.guarantee import (
     pay_commission_debt,
     top_up_deposit,
 )
+from core.cache_utils import invalidate_cache_groups
 from .models import TutorPayoutRequest
 from .serializers import (
     AdminCourseCommissionSerializer,
+    AdminCourseCancellationRequestSerializer,
     AdminCourseSerializer,
     AdminFinanceTutorSerializer,
     AdminGuaranteeTransactionSerializer,
@@ -203,7 +205,7 @@ class AdminCourseListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = Course.objects.select_related(
             "student", "tutor__user", "subject", "commission"
-        ).prefetch_related("sessions")
+        ).prefetch_related("sessions__materials", "sessions__materials__uploaded_by")
 
         status_param = self.request.query_params.get("status")
         if status_param and status_param != "all":
@@ -251,6 +253,77 @@ class AdminCourseActionView(APIView):
         if action == "completed":
             accrue_course_commission(course)
         return Response(AdminCourseSerializer(course).data)
+
+
+class AdminCourseCancellationRequestListView(generics.ListAPIView):
+    permission_classes = [IsAdminUser]
+    serializer_class = AdminCourseCancellationRequestSerializer
+
+    def get_queryset(self):
+        queryset = CourseCancellationRequest.objects.select_related(
+            "course__student",
+            "course__tutor__user",
+            "course__subject",
+            "requested_by",
+        )
+        status_param = self.request.query_params.get("status")
+        if status_param and status_param != "all":
+            queryset = queryset.filter(status=status_param)
+        role = self.request.query_params.get("role")
+        if role and role != "all":
+            queryset = queryset.filter(requested_by_role=role)
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(course__title__icontains=search)
+                | Q(course__student__email__icontains=search)
+                | Q(course__student__username__icontains=search)
+                | Q(course__tutor__full_name__icontains=search)
+                | Q(reason__icontains=search)
+            )
+        return queryset.order_by("-created_at")
+
+
+class AdminCourseCancellationRequestActionView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            cancellation = CourseCancellationRequest.objects.select_related(
+                "course__booking"
+            ).get(pk=pk, status="pending")
+        except CourseCancellationRequest.DoesNotExist:
+            return Response(
+                {"error": "Cancellation request not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        action = request.data.get("action")
+        if action not in ["approve", "reject"]:
+            return Response(
+                {"action": "Use approve or reject."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cancellation.status = "approved" if action == "approve" else "rejected"
+        cancellation.admin_note = request.data.get("admin_note", "")
+        cancellation.processed_by = request.user
+        cancellation.processed_at = timezone.now()
+        cancellation.save(
+            update_fields=["status", "admin_note", "processed_by", "processed_at"]
+        )
+
+        if action == "approve":
+            course = cancellation.course
+            course.status = "cancelled"
+            course.save(update_fields=["status", "updated_at"])
+            booking = getattr(course, "booking", None)
+            if booking:
+                booking.status = "cancelled"
+                booking.save(update_fields=["status"])
+
+        invalidate_cache_groups("courses", "bookings")
+        return Response(AdminCourseCancellationRequestSerializer(cancellation).data)
 
 
 class AdminFinanceOverviewView(APIView):

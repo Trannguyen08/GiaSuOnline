@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, CalendarDays, CheckCircle2, UserRound } from 'lucide-react';
-import api from '../api/client';
+import { publicClient } from '../api/client';
 import { bookingsApi } from '../api/bookings';
 import { useToast } from '../components/ui/Toast';
 import { getStoredUser } from '../utils/auth';
@@ -83,7 +83,7 @@ const TutorBooking: React.FC = () => {
       setLoading(true);
       try {
         const [profileRes, slotData] = await Promise.all([
-          api.get(`/tutors/public/${id}/`),
+          publicClient.get(`/tutors/public/${id}/`),
           bookingsApi.getPublicTutorSlots(id!),
         ]);
         if (!mounted) return;
@@ -181,6 +181,8 @@ const TutorBooking: React.FC = () => {
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const schedules = selectedScheduleOptions.map(item => ({
         day: item.day,
+        start_time: item.startTime,
+        end_time: item.endTime,
         label: `${dayLabels[item.day]}, ${item.startTime} - ${item.endTime}`,
       }));
     const notes = studentInfo.note;

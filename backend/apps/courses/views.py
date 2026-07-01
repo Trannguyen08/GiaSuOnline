@@ -4,10 +4,12 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.throttling import ScopedRateThrottle
+from django.http import HttpResponseRedirect
+from django.core import signing
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.conf import settings
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from .models import (
     Course,
@@ -21,6 +23,7 @@ from .models import (
     CourseReview,
     TutorStudentFeedback,
     CourseExtensionRequest,
+    CourseCancellationRequest,
 )
 from .serializers import (
     CourseListSerializer,
@@ -35,7 +38,51 @@ from .serializers import (
     CourseReviewSerializer,
     TutorStudentFeedbackSerializer,
     CourseExtensionRequestSerializer,
+    CourseCancellationRequestSerializer,
 )
+
+
+class SessionMaterialDownloadView(APIView):
+    permission_classes = []
+
+    def get(self, request, material_id):
+        try:
+            material = (
+                SessionMaterial.objects.select_related(
+                    "session__course__student", "session__course__tutor__user"
+                )
+                .get(pk=material_id)
+            )
+        except SessionMaterial.DoesNotExist:
+            return Response({"error": "Material not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        course = material.session.course
+        token = request.query_params.get("token")
+        has_valid_token = False
+        if token:
+            try:
+                payload = signing.loads(
+                    token, salt="session-material-download", max_age=60 * 60 * 24
+                )
+                has_valid_token = payload.get("material_id") == material.id
+            except signing.BadSignature:
+                has_valid_token = False
+
+        user = getattr(request, "user", None)
+        is_student = bool(user and user.is_authenticated and course.student_id == user.id)
+        is_tutor = bool(
+            user
+            and user.is_authenticated
+            and getattr(course.tutor, "user_id", None) == user.id
+        )
+        if not (has_valid_token or is_student or is_tutor):
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        if material.file:
+            return HttpResponseRedirect(material.file.url)
+        if material.external_url:
+            return HttpResponseRedirect(material.external_url)
+        return Response({"error": "Material has no file"}, status=status.HTTP_404_NOT_FOUND)
 from .tasks import moderate_course_review, moderate_tutor_student_feedback
 from core.cache_utils import (
     get_cached_response,
@@ -49,6 +96,77 @@ from core.s3_uploads import (
     validate_material_upload,
     s3_client,
 )
+
+
+def calculate_course_cancellation_refund(course, requested_by_role):
+    booking = getattr(course, "booking", None)
+    deposit = getattr(booking, "deposit_amount", 0) if booking else 0
+    payment_status = getattr(booking, "payment_status", "")
+    completed_count = course.sessions.filter(student_completed=True).count()
+
+    if payment_status != "paid" or not deposit:
+        return 0, 0, "No paid deposit to refund."
+    if requested_by_role == "tutor":
+        return 100, deposit, "Tutor cancelled after deposit: refund 100%."
+    if completed_count >= 1:
+        return 0, 0, "Student cancelled after at least one completed session: no deposit refund."
+    return 100, deposit, "Student cancelled after deposit before any completed session: refund 80-100%."
+
+
+def create_course_cancellation_request(course, request, requested_by_role):
+    if course.status == "cancelled":
+        return None, Response(
+            {"error": "Course is already cancelled."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if course.cancellation_requests.filter(status="pending").exists():
+        return None, Response(
+            {"error": "This course already has a pending cancellation request."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    reason = (request.data.get("reason") or "").strip()
+    if not reason:
+        return None, Response(
+            {"reason": "Cancellation reason is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    refund_percent, refund_amount, refund_note = calculate_course_cancellation_refund(
+        course, requested_by_role
+    )
+    refund_required = refund_amount > 0
+    if refund_required:
+        has_bank_info = all(
+            (request.data.get(field) or "").strip()
+            for field in ["bank_account_name", "bank_account_number", "bank_name"]
+        )
+        has_qr = bool(request.FILES.get("refund_qr"))
+        if not has_bank_info and not has_qr:
+            return None, Response(
+                {
+                    "refund_info": "Refund requests require bank account details or a transfer QR image."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    cancellation = CourseCancellationRequest.objects.create(
+        course=course,
+        requested_by=request.user,
+        requested_by_role=requested_by_role,
+        reason=reason,
+        refund_required=refund_required,
+        refund_percent=refund_percent,
+        refund_amount=refund_amount,
+        refund_note=refund_note,
+        bank_account_name=request.data.get("bank_account_name", ""),
+        bank_account_number=request.data.get("bank_account_number", ""),
+        bank_name=request.data.get("bank_name", ""),
+        bank_branch=request.data.get("bank_branch", ""),
+        refund_qr=request.FILES.get("refund_qr"),
+    )
+    invalidate_cache_groups("courses", "bookings")
+    return cancellation, None
 from apps.tutors.services.guarantee import accrue_course_commission
 
 User = get_user_model()
@@ -71,7 +189,7 @@ def apply_direct_file_metadata(material, file_obj):
     material.file_size = file_obj.size
     material.content_type = file_obj.content_type
     material.s3_key = material.file.name
-    material.external_url = material.file.url
+    material.external_url = ""
     material.upload_status = "ready"
     material.save(
         update_fields=[
@@ -103,7 +221,7 @@ class StudentCourseListView(APIView):
             return Response(cached)
         courses = (
             Course.objects.filter(student=request.user)
-            .select_related("tutor", "subject")
+            .select_related("tutor", "tutor__user", "tutor__user__tutor_profile", "subject")
             .prefetch_related("sessions")
         )
 
@@ -154,7 +272,7 @@ class StudentCourseDetailView(APIView):
             return Response(cached)
         try:
             course = (
-                Course.objects.select_related("tutor", "subject")
+                Course.objects.select_related("tutor", "tutor__user", "tutor__user__tutor_profile", "subject")
                 .prefetch_related("sessions__materials")
                 .get(pk=pk, student=request.user)
             )
@@ -188,6 +306,23 @@ class StudentSessionCompleteView(APIView):
         if session.student_completed:
             return Response(
                 {"message": "Buổi học đã được đánh dấu hoàn thành trước đó"}
+            )
+
+        if not session.scheduled_date or not session.scheduled_time:
+            return Response(
+                {"error": "Chua co du ngay gio buoi hoc de danh dau hoan thanh"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session_start = datetime.combine(session.scheduled_date, session.scheduled_time)
+        session_start = timezone.make_aware(session_start, timezone.get_current_timezone())
+        session_end = session_start + timedelta(
+            minutes=session.course.session_duration_minutes or 0
+        )
+        if timezone.now() <= session_end:
+            return Response(
+                {"error": "Chi co the danh dau hoan thanh sau khi buoi hoc ket thuc"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         session.mark_completed()
@@ -402,6 +537,34 @@ class TutorExtensionRequestDecisionView(APIView):
         return Response(CourseExtensionRequestSerializer(extension).data)
 
 
+class TutorCourseCancellationRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
+
+    def post(self, request, pk):
+        try:
+            course = Course.objects.select_related("booking", "student", "tutor__user").get(
+                pk=pk, tutor=request.user.teaching_profile
+            )
+        except Course.DoesNotExist:
+            return Response(
+                {"error": "Khong tim thay khoa hoc"}, status=status.HTTP_404_NOT_FOUND
+            )
+        cancellation, error_response = create_course_cancellation_request(
+            course, request, "tutor"
+        )
+        if error_response:
+            return error_response
+        return Response(
+            CourseCancellationRequestSerializer(
+                cancellation, context={"request": request}
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class TutorCourseDetailView(APIView):
     """Tutor: Xem chi tiết khóa học"""
 
@@ -463,6 +626,34 @@ class TutorStudentFeedbackCreateView(APIView):
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class StudentCourseCancellationRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "course_action"
+
+    def post(self, request, pk):
+        try:
+            course = Course.objects.select_related("booking", "student", "tutor__user").get(
+                pk=pk, student=request.user
+            )
+        except Course.DoesNotExist:
+            return Response(
+                {"error": "Khong tim thay khoa hoc"}, status=status.HTTP_404_NOT_FOUND
+            )
+        cancellation, error_response = create_course_cancellation_request(
+            course, request, "student"
+        )
+        if error_response:
+            return error_response
+        return Response(
+            CourseCancellationRequestSerializer(
+                cancellation, context={"request": request}
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TutorStudentFeedbackListView(APIView):
@@ -629,7 +820,7 @@ class TutorSessionMaterialPresignView(APIView):
             title=request.data.get("title", filename),
             content=request.data.get("content", ""),
             s3_key=key,
-            external_url=public_s3_url(key),
+            external_url="",
             file_size=file_size,
             content_type=content_type,
             upload_status="pending",
@@ -916,7 +1107,7 @@ class TutorStudyRoomMaterialPresignView(APIView):
             title=request.data.get("title", filename),
             content=request.data.get("content", ""),
             s3_key=key,
-            external_url=public_s3_url(key),
+            external_url="",
             file_size=file_size,
             content_type=content_type,
             upload_status="pending",

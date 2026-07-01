@@ -3,8 +3,10 @@ from .views import (
     StudentCourseListView,
     StudentCourseDetailView,
     StudentSessionCompleteView,
+    SessionMaterialDownloadView,
     StudentCourseReviewView,
     StudentCourseExtensionRequestView,
+    StudentCourseCancellationRequestView,
     TutorCourseListView,
     TutorCourseDetailView,
     TutorCourseReviewListView,
@@ -12,6 +14,7 @@ from .views import (
     TutorStudentFeedbackListView,
     TutorExtensionRequestListView,
     TutorExtensionRequestDecisionView,
+    TutorCourseCancellationRequestView,
     TutorSessionUpdateView,
     TutorSessionMaterialUploadView,
     TutorSessionMaterialPresignView,
@@ -48,9 +51,19 @@ urlpatterns = [
         name="student-course-extend",
     ),
     path(
+        "student/<int:pk>/cancel/",
+        StudentCourseCancellationRequestView.as_view(),
+        name="student-course-cancel",
+    ),
+    path(
         "sessions/<int:session_id>/complete/",
         StudentSessionCompleteView.as_view(),
         name="session-complete",
+    ),
+    path(
+        "materials/<int:material_id>/download/",
+        SessionMaterialDownloadView.as_view(),
+        name="session-material-download",
     ),
     # Tutor endpoints
     path("tutor/", TutorCourseListView.as_view(), name="tutor-courses"),
@@ -71,6 +84,11 @@ urlpatterns = [
     ),
     path(
         "tutor/<int:pk>/", TutorCourseDetailView.as_view(), name="tutor-course-detail"
+    ),
+    path(
+        "tutor/<int:pk>/cancel/",
+        TutorCourseCancellationRequestView.as_view(),
+        name="tutor-course-cancel",
     ),
     path(
         "tutor/<int:pk>/student-feedback/",

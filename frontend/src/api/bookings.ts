@@ -1,4 +1,4 @@
-import client from './client';
+import client, { publicClient } from './client';
 
 export const bookingsApi = {
   getTutorSlots: () => client.get('/bookings/tutor/slots/').then(r => r.data),
@@ -8,7 +8,7 @@ export const bookingsApi = {
   getTutorBookings: () => client.get('/bookings/tutor/bookings/').then(r => r.data),
   decideTutorBooking: (id: number, data: any) => client.post(`/bookings/tutor/bookings/${id}/decision/`, data).then(r => r.data),
   getTutorStudents: () => client.get('/bookings/tutor/students/').then(r => r.data),
-  getPublicTutorSlots: (tutorId: number | string) => client.get(`/bookings/public/tutors/${tutorId}/slots/`).then(r => r.data),
+  getPublicTutorSlots: (tutorId: number | string) => publicClient.get(`/bookings/public/tutors/${tutorId}/slots/`).then(r => r.data),
   bookSlot: (slotId: number, data: any = {}) => client.post(`/bookings/student/slots/${slotId}/book/`, data).then(r => r.data),
   createBooking: (tutorId: number | string, data: any = {}) => client.post(`/bookings/student/tutors/${tutorId}/book/`, data).then(r => r.data),
   getStudentBookings: () => client.get('/bookings/student/bookings/').then(r => r.data),

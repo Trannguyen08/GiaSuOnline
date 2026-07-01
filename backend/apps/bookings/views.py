@@ -9,7 +9,7 @@ from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from kombu.exceptions import OperationalError as QueueOperationalError
 from decimal import Decimal
-from datetime import timedelta
+from datetime import datetime, timedelta
 from .models import Booking, TutorAvailability, TeachingSlot
 from .emails import (
     send_booking_approved_email,
@@ -21,9 +21,11 @@ from .serializers import (
     TutorAvailabilitySerializer,
     TeachingSlotSerializer,
 )
+from .services.payment_processing import process_booking_payment
 from .tasks import enqueue_payment_verification
 from apps.users.serializers import UserSerializer
 from django.contrib.auth import get_user_model
+from apps.courses.models import CourseSession
 from apps.tutors.models import TutorSubject
 from apps.tutors.services.guarantee import (
     can_receive_new_classes,
@@ -100,8 +102,11 @@ def release_booking_slots(booking):
         slot_ids = [booking.teaching_slot_id]
     if slot_ids:
         TeachingSlot.objects.filter(id__in=slot_ids, status="booked").update(
-            status="available"
+            status="available", confirmed_booking=None
         )
+    TeachingSlot.objects.filter(confirmed_booking=booking, status="booked").update(
+        status="available", confirmed_booking=None
+    )
 
 
 def get_student_booking_for_payment(*, user, booking_id=None, order_code=None):
@@ -255,18 +260,41 @@ class TutorStudentsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Get unique students from bookings
-        student_ids = (
-            Booking.objects.filter(tutor=request.user.tutor_profile)
-            .values_list("student", flat=True)
-            .distinct()
+        tutor_profile = get_tutor_profile(request.user)
+        bookings = (
+            Booking.objects.filter(tutor=tutor_profile, payment_status="paid")
+            .select_related("student", "subject", "course")
+            .order_by("-paid_at", "-created_at")
         )
 
-        students = User.objects.filter(id__in=student_ids)
-        serializer = UserSerializer(students, many=True)
+        students = {}
+        for booking in bookings:
+            if booking.student_id in students:
+                continue
+            student = booking.student
+            avatar_url = None
+            if student.avatar:
+                avatar_url = request.build_absolute_uri(student.avatar.url)
+            students[booking.student_id] = {
+                "id": student.id,
+                "username": student.username,
+                "email": student.email,
+                "phone": student.phone,
+                "bio": student.bio,
+                "avatar": avatar_url,
+                "student_info": booking.student_info or {},
+                "booking_id": booking.id,
+                "course_id": getattr(getattr(booking, "course", None), "id", None),
+                "course_title": getattr(getattr(booking, "course", None), "title", ""),
+                "subject_name": booking.subject.name if booking.subject else "",
+                "study_start_date": booking.study_start_date,
+                "study_end_date": booking.study_end_date,
+                "selected_schedules": booking.selected_schedules or [],
+                "notes": booking.notes,
+                "paid_at": booking.paid_at,
+            }
 
-        # We could enhance this with progress data if we had a dedicated model
-        return Response(serializer.data)
+        return Response(list(students.values()))
 
 
 class TutorTeachingSlotListCreateView(APIView):
@@ -282,17 +310,99 @@ class TutorTeachingSlotListCreateView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        tutor_profile = get_tutor_profile(request.user)
         slots = (
             TeachingSlot.objects.filter(tutor=get_tutor_profile(request.user))
             .exclude(status="cancelled")
-            .select_related("subject", "tutor")
+            .select_related("subject", "tutor", "confirmed_booking__student")
             .order_by("start_time")
         )
         serializer = TeachingSlotSerializer(
             slots, many=True, context={"request": request}
         )
-        set_cached_response("bookings", serializer.data, request, "tutor-slots")
-        return Response(serializer.data)
+        data = list(serializer.data)
+
+        real_booked_keys = set()
+        for slot in slots:
+            booking_id = slot.confirmed_booking_id or getattr(
+                getattr(slot, "booking", None), "id", None
+            )
+            if slot.status != "booked" or not booking_id:
+                continue
+            local_start = timezone.localtime(slot.start_time)
+            local_end = timezone.localtime(slot.end_time)
+            real_booked_keys.add(
+                (
+                    booking_id,
+                    local_start.date(),
+                    local_start.time().replace(second=0, microsecond=0),
+                    local_end.time().replace(second=0, microsecond=0),
+                )
+            )
+
+        course_sessions = (
+            CourseSession.objects.filter(
+                course__tutor=tutor_profile,
+                course__status="active",
+                scheduled_date__isnull=False,
+                scheduled_time__isnull=False,
+            )
+            .select_related(
+                "course",
+                "course__booking",
+                "course__student",
+                "course__subject",
+                "course__tutor",
+            )
+            .order_by("scheduled_date", "scheduled_time", "session_number")
+        )
+        current_tz = timezone.get_current_timezone()
+        for session in course_sessions:
+            booking = getattr(session.course, "booking", None)
+            start_naive = datetime.combine(session.scheduled_date, session.scheduled_time)
+            start_at = timezone.make_aware(start_naive, current_tz)
+            end_at = start_at + timedelta(minutes=session.course.session_duration_minutes or 60)
+            local_start = timezone.localtime(start_at)
+            local_end = timezone.localtime(end_at)
+            booking_id = getattr(booking, "id", None)
+            key = (
+                booking_id,
+                local_start.date(),
+                local_start.time().replace(second=0, microsecond=0),
+                local_end.time().replace(second=0, microsecond=0),
+            )
+            if booking_id and key in real_booked_keys:
+                continue
+            student_info = getattr(booking, "student_info", {}) or {}
+            data.append(
+                {
+                    "id": f"session-{session.id}",
+                    "tutor": tutor_profile.id,
+                    "tutor_name": tutor_profile.full_name,
+                    "subject": getattr(session.course.subject, "id", None),
+                    "subject_name": getattr(session.course.subject, "name", ""),
+                    "start_time": start_at.isoformat(),
+                    "end_time": end_at.isoformat(),
+                    "price": "0.00",
+                    "meeting_link": "",
+                    "note": session.tutor_notes,
+                    "status": "booked",
+                    "student_name": (
+                        student_info.get("fullName")
+                        or session.course.student.get_full_name()
+                        or session.course.student.username
+                        or session.course.student.email
+                    ),
+                    "booking_subject_name": getattr(session.course.subject, "name", ""),
+                    "student_phone": student_info.get("phone") or session.course.student.phone,
+                    "student_address": student_info.get("address"),
+                    "is_system_generated": True,
+                    "created_at": session.created_at,
+                }
+            )
+
+        set_cached_response("bookings", data, request, "tutor-slots")
+        return Response(data)
 
     def post(self, request):
         if not request.user.is_tutor:
@@ -741,14 +851,16 @@ class BookingPaymentVerifyView(APIView):
             )
 
         try:
-            enqueue_payment_verification(booking_snapshot.id)
+            process_booking_payment(booking_snapshot.id)
         except PayOSError as exc:
+            try:
+                enqueue_payment_verification(booking_snapshot.id)
+            except QueueOperationalError:
+                return Response(
+                    {"error": "Payment queue is unavailable."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
-        except QueueOperationalError:
-            return Response(
-                {"error": "Payment queue is unavailable."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
 
         booking = Booking.objects.select_related(
             "student", "tutor__user", "subject"

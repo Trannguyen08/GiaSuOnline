@@ -103,6 +103,13 @@ class TeachingSlot(models.Model):
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default="available"
     )
+    confirmed_booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="confirmed_teaching_slots",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

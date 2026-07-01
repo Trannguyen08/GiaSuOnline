@@ -287,6 +287,12 @@ const TutorDashboard: React.FC = () => {
   const depositPercent = requiredDeposit > 0 ? Math.min(100, Math.round((depositBalance / requiredDeposit) * 100)) : 0;
   const commissionDebt = Number(guarantee?.commission_debt || 0);
   const completedCourses = courses.filter((course: any) => course.status === 'completed');
+  const todaySchedule = (dashboard?.today_schedule || []).filter((item, index, items) => {
+    const key = `${formatTime(item.start_time)}|${item.subject || ''}|${item.student_name || ''}`;
+    return items.findIndex(candidate => (
+      `${formatTime(candidate.start_time)}|${candidate.subject || ''}|${candidate.student_name || ''}` === key
+    )) === index;
+  });
 
   return (
     <div className="space-y-8">
@@ -296,7 +302,7 @@ const TutorDashboard: React.FC = () => {
             Xin chào, {profile?.full_name || 'Gia sư'}!
           </h1>
           <p className="mt-2 text-slate-500 font-medium">
-            Hôm nay bạn có {summary?.today_upcoming_count || 0} buổi dạy sắp tới.
+            Hôm nay bạn có {todaySchedule.length} buổi dạy sắp tới.
           </p>
         </div>
         <div className="w-full max-w-sm rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -614,13 +620,13 @@ const TutorDashboard: React.FC = () => {
               <p className="text-xs font-semibold text-slate-400">Slot đã được đặt và buổi học đã lên lịch.</p>
             </div>
           </div>
-          {(dashboard?.today_schedule || []).length === 0 ? (
+          {todaySchedule.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-semibold text-slate-400">
               Hôm nay chưa có buổi dạy.
             </p>
           ) : (
             <div className="space-y-3">
-              {dashboard?.today_schedule.map((item) => (
+              {todaySchedule.map((item) => (
                 <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
                   <p className="text-xs font-black uppercase tracking-widest text-slate-400">
                     {formatTime(item.start_time)}{item.end_time ? ` - ${formatTime(item.end_time)}` : ''}

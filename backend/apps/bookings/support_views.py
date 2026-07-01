@@ -122,7 +122,7 @@ class StudentBookingCancelView(APIView):
             booking.notes = f"{booking.notes}\n[Student cancelled] {reason}".strip()
         booking.save(update_fields=["status", "payment_status", "notes"])
         release_booking_slots(booking)
-        invalidate_cache_groups("bookings", "tutors")
+        invalidate_cache_groups("bookings", "courses", "tutors")
         return Response({"message": "Booking cancelled successfully."})
 
 

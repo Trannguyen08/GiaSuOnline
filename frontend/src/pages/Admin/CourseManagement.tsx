@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, CheckCircle2, PauseCircle, Search, XCircle } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronDown, FileText, Image as ImageIcon, Link2, PauseCircle, Search, Video, X, XCircle } from 'lucide-react';
 import { useAdminStore } from '../../store/useAdminStore';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { useToast } from '../../components/ui/Toast';
+import { groupSessionMaterials } from '../../utils/materialGroups';
 
 const statusLabels: Record<string, string> = {
   active: 'Đang học',
@@ -24,12 +25,25 @@ const years = Array.from({ length: 5 }, (_, index) => currentYear - index);
 const normalizeText = (value: string) =>
   value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+const materialIcons: Record<string, any> = {
+  note: FileText,
+  image: ImageIcon,
+  file: FileText,
+  video: Video,
+  link: Link2,
+};
+
+const materialCount = (course: any) =>
+  (course.sessions || []).reduce((total: number, session: any) => total + (session.materials?.length || 0), 0);
+
 const AdminCourseManagement: React.FC = () => {
   const now = new Date();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [month, setMonth] = useState('');
   const [year, setYear] = useState(String(now.getFullYear()));
+  const [expandedCourseIds, setExpandedCourseIds] = useState<number[]>([]);
+  const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
   const { courses, fetchCourses, courseAction, isLoading } = useAdminStore();
   const { showToast } = useToast();
 
@@ -64,6 +78,12 @@ const AdminCourseManagement: React.FC = () => {
     } catch (error: any) {
       showToast(error.response?.data?.error || 'Không thể cập nhật khóa học.', 'error');
     }
+  };
+
+  const toggleExpanded = (id: number) => {
+    setExpandedCourseIds(current =>
+      current.includes(id) ? current.filter(item => item !== id) : [...current, id],
+    );
   };
 
   return (
@@ -120,7 +140,8 @@ const AdminCourseManagement: React.FC = () => {
               ) : filteredCourses.length === 0 ? (
                 <tr><td colSpan={8} className="py-12 text-center font-semibold text-slate-400">Không có khóa học phù hợp.</td></tr>
               ) : filteredCourses.map((course) => (
-                <tr key={course.id} className="hover:bg-slate-50">
+                <React.Fragment key={course.id}>
+                <tr className="hover:bg-slate-50">
                   <td className="px-5 py-4">
                     <div className="flex items-start gap-3">
                       <div className="rounded-xl bg-blue-50 p-2 text-blue-600"><BookOpen className="h-5 w-5" /></div>
@@ -154,17 +175,104 @@ const AdminCourseManagement: React.FC = () => {
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-1">
+                      <button
+                        title="Xem tài liệu"
+                        onClick={() => toggleExpanded(course.id)}
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-xs font-black text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
+                      >
+                        <FileText className="h-4 w-4" />
+                        {materialCount(course)}
+                        <ChevronDown className={`h-4 w-4 transition-transform ${expandedCourseIds.includes(course.id) ? 'rotate-180' : ''}`} />
+                      </button>
                       <button title="Hoàn thành" onClick={() => handleAction(course.id, 'completed')} className="rounded-lg p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600"><CheckCircle2 className="h-4 w-4" /></button>
                       <button title="Tạm dừng" onClick={() => handleAction(course.id, 'paused')} className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"><PauseCircle className="h-4 w-4" /></button>
                       <button title="Hủy" onClick={() => handleAction(course.id, 'cancelled')} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><XCircle className="h-4 w-4" /></button>
                     </div>
                   </td>
                 </tr>
+                {expandedCourseIds.includes(course.id) && (
+                  <tr>
+                    <td colSpan={8} className="bg-slate-50 px-5 py-5">
+                      <div className="space-y-4">
+                        {(course.sessions || []).filter((session: any) => session.materials?.length > 0).length === 0 ? (
+                          <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm font-semibold text-slate-400">
+                            Khóa học này chưa có tài liệu.
+                          </p>
+                        ) : (
+                          (course.sessions || []).filter((session: any) => session.materials?.length > 0).map((session: any) => (
+                            <div key={session.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                              <p className="mb-3 text-sm font-black text-slate-900">{session.title || `Buổi ${session.session_number}`}</p>
+                              <div className="space-y-3">
+                                {groupSessionMaterials(session.materials).map((group: any) => {
+                                  const Icon = materialIcons[group.material_type] || FileText;
+                                  const mat = group.items[0];
+                                  return (
+                                    <div key={group.id} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-100 text-indigo-600">
+                                        <Icon className="h-4 w-4" />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-black text-slate-900">{group.title || 'Tài liệu'}</p>
+                                        <p className="mt-1 text-xs font-bold text-slate-400">{group.items.length} file trong lần upload này</p>
+                                        {mat.visible_content && <p className="mt-1 line-clamp-2 text-xs font-semibold text-slate-500">{mat.visible_content}</p>}
+                                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                          {group.items.map((item: any) => {
+                                            const itemUrl = item.download_url || item.file_url;
+                                            return (
+                                              <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                                                {item.material_type === 'image' && itemUrl ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setImagePreview({ url: itemUrl, title: item.display_title })}
+                                                    className="block w-full truncate text-left text-sm font-black text-slate-800 underline-offset-2 hover:text-indigo-600 hover:underline"
+                                                  >
+                                                    {item.display_title}
+                                                  </button>
+                                                ) : itemUrl ? (
+                                                  <a href={itemUrl} target="_blank" rel="noreferrer" className="block truncate text-sm font-black text-slate-800 underline-offset-2 hover:text-indigo-600 hover:underline">
+                                                    {item.display_title}
+                                                  </a>
+                                                ) : (
+                                                  <p className="truncate text-sm font-black text-slate-800">{item.display_title}</p>
+                                                )}
+                                                <p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.content_type || 'Tài liệu'}</p>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+      {imagePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+              <p className="truncate text-sm font-extrabold text-slate-900">{imagePreview.title}</p>
+              <button type="button" onClick={() => setImagePreview(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid max-h-[calc(92vh-57px)] place-items-center overflow-auto bg-slate-950 p-4">
+              <img src={imagePreview.url} alt={imagePreview.title} className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

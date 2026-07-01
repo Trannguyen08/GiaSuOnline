@@ -11,7 +11,13 @@ from apps.tutors.models import (
     TutorSubject,
 )
 from apps.bookings.models import Booking, TeachingSlot
-from apps.courses.models import Course, CourseCommission, CourseReview
+from apps.courses.models import (
+    Course,
+    CourseCancellationRequest,
+    CourseCommission,
+    CourseReview,
+)
+from apps.courses.serializers import CourseSessionSerializer
 from .models import SystemSetting, TutorPayoutRequest, ViolationCase
 
 User = get_user_model()
@@ -256,6 +262,7 @@ class AdminCourseSerializer(serializers.ModelSerializer):
     commission_status = serializers.SerializerMethodField()
     commission_amount = serializers.SerializerMethodField()
     commission_outstanding = serializers.SerializerMethodField()
+    sessions = CourseSessionSerializer(many=True, read_only=True)
 
     class Meta:
         model = Course
@@ -282,6 +289,7 @@ class AdminCourseSerializer(serializers.ModelSerializer):
             "commission_status",
             "commission_amount",
             "commission_outstanding",
+            "sessions",
             "created_at",
             "updated_at",
         ]
@@ -408,7 +416,62 @@ class TutorPayoutRequestSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = fields
+
+
+class AdminCourseCancellationRequestSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source="course.title", read_only=True)
+    course_status = serializers.CharField(source="course.status", read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source="course.student.email", read_only=True)
+    tutor_name = serializers.CharField(source="course.tutor.full_name", read_only=True)
+    tutor_email = serializers.EmailField(source="course.tutor.user.email", read_only=True)
+    subject_name = serializers.CharField(source="course.subject.name", read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    refund_qr_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CourseCancellationRequest
+        fields = [
+            "id",
+            "course",
+            "course_title",
+            "course_status",
+            "student_name",
+            "student_email",
+            "tutor_name",
+            "tutor_email",
+            "subject_name",
+            "requested_by_name",
+            "requested_by_role",
+            "reason",
+            "refund_required",
+            "refund_percent",
+            "refund_amount",
+            "refund_note",
+            "bank_account_name",
+            "bank_account_number",
+            "bank_name",
+            "bank_branch",
+            "refund_qr_url",
+            "status",
+            "admin_note",
+            "created_at",
+            "processed_at",
+        ]
+
+    def get_student_name(self, obj):
+        return obj.course.student.get_full_name() or obj.course.student.username or obj.course.student.email
+
+    def get_requested_by_name(self, obj):
+        return obj.requested_by.get_full_name() or obj.requested_by.username or obj.requested_by.email
+
+    def get_refund_qr_url(self, obj):
+        if not obj.refund_qr:
+            return None
+        request = self.context.get("request")
+        if request is not None:
+            return request.build_absolute_uri(obj.refund_qr.url)
+        return obj.refund_qr.url
 
 
 class AdminBookingSerializer(serializers.ModelSerializer):

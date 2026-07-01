@@ -7,6 +7,10 @@ export const coursesApi = {
   completeSession: (sessionId: number) => client.post(`/courses/sessions/${sessionId}/complete/`).then(r => r.data),
   reviewCourse: (id: number, data: any) => client.post(`/courses/student/${id}/review/`, data).then(r => r.data),
   requestExtension: (id: number, data: any) => client.post(`/courses/student/${id}/extend/`, data).then(r => r.data),
+  requestStudentCancellation: (id: number, data: FormData) =>
+    client.post(`/courses/student/${id}/cancel/`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(r => r.data),
 
   // Tutor
   getTutorCourses: () => client.get('/courses/tutor/').then(r => r.data),
@@ -14,6 +18,10 @@ export const coursesApi = {
   getTutorExtensionRequests: () => client.get('/courses/tutor/extensions/').then(r => r.data),
   decideExtensionRequest: (id: number, data: any) => client.post(`/courses/tutor/extensions/${id}/decision/`, data).then(r => r.data),
   getTutorCourseDetail: (id: number) => client.get(`/courses/tutor/${id}/`).then(r => r.data),
+  requestTutorCancellation: (id: number, data: FormData) =>
+    client.post(`/courses/tutor/${id}/cancel/`, data, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(r => r.data),
   feedbackStudent: (id: number, data: any) => client.post(`/courses/tutor/${id}/student-feedback/`, data).then(r => r.data),
   getStudentFeedbacks: (studentId: number) => client.get(`/courses/tutor/students/${studentId}/feedbacks/`).then(r => r.data),
   updateSession: (sessionId: number, data: any) => client.patch(`/courses/tutor/sessions/${sessionId}/update/`, data).then(r => r.data),

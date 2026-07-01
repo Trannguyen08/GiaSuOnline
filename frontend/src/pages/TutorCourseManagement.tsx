@@ -3,24 +3,60 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Plus, Upload, FileText, Image as ImageIcon, Link2,
-  Trash2, X, Save, CheckCircle2, Clock, BookOpen, Video
+  Trash2, X, Save, CheckCircle2, Clock, BookOpen, Video, XCircle
 } from 'lucide-react';
 import { useTutorCourses, useTutorCourseDetail } from '../hooks/useCourses';
 import { coursesApi } from '../api/courses';
+import { createMaterialBatchContent, groupSessionMaterials } from '../utils/materialGroups';
+
+const sessionTitle = (session: any) => {
+  const title = session?.title || '';
+  if (/^buoi\s+\d+$/i.test(title.trim())) {
+    return `Buổi ${session.session_number}`;
+  }
+  return title || `Buổi ${session?.session_number || ''}`;
+};
+
+const formatDate = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('vi-VN');
+};
+
+const formatUploadDateTime = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+};
+
+const scheduleRows = (schedule?: string) => {
+  if (!schedule) return [];
+  const parts = schedule.split(',').map((item) => item.trim()).filter(Boolean);
+  const rows: string[] = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    rows.push([parts[index], parts[index + 1]].filter(Boolean).join(', '));
+  }
+  return rows.length ? rows : [schedule];
+};
 
 // ── TUTOR COURSE LIST ─────────────────────────────────────────────────────────
 export const TutorCourseList: React.FC = () => {
   const navigate = useNavigate();
   const { data, loading, fetchCourses } = useTutorCourses();
-  const [reviews, setReviews] = useState<any[]>([]);
+  const reviews: any[] = [];
   const [extensions, setExtensions] = useState<any[]>([]);
 
   const fetchSideData = async () => {
-    const [reviewData, extensionData] = await Promise.all([
-      coursesApi.getTutorReviews().catch(() => []),
-      coursesApi.getTutorExtensionRequests().catch(() => []),
-    ]);
-    setReviews(reviewData);
+    const extensionData = await coursesApi.getTutorExtensionRequests().catch(() => []);
     setExtensions(extensionData);
   };
 
@@ -32,8 +68,8 @@ export const TutorCourseList: React.FC = () => {
     <div className="space-y-8 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold text-[#1e1b4b]">Quản lý khóa học</h1>
-          <p className="text-gray-500 mt-1">Quản lý nội dung và tiến độ các khóa học bạn đang dạy.</p>
+          <h1 className="text-3xl font-extrabold text-[#1e1b4b]">Khóa học</h1>
+          <p className="text-gray-500 mt-1">Mỗi học sinh là một khóa, quản lý buổi học, ghi chú và tài liệu tại đây.</p>
         </div>
         <div className="flex gap-3">
           <div className="bg-white rounded-xl px-4 py-2 border border-gray-100 text-center">
@@ -74,7 +110,7 @@ export const TutorCourseList: React.FC = () => {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="font-extrabold text-gray-900 text-lg group-hover:text-[#5a5ce6] transition-colors">{course.title}</h3>
+                    <h3 className="font-extrabold text-gray-900 text-lg group-hover:text-[#5a5ce6] transition-colors">{course.student_name || course.title}</h3>
                     <p className="text-sm text-[#5a5ce6] font-semibold">{course.subject_name}</p>
                   </div>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
@@ -85,12 +121,19 @@ export const TutorCourseList: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-3 mb-5">
-                  <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=student${course.id}`} className="w-8 h-8 rounded-full border" />
-                  <p className="text-sm text-gray-600 font-medium">Học viên</p>
+                  <img src={course.student_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=student${course.id}`} className="w-8 h-8 rounded-full border" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-gray-600 font-semibold">{course.student_email || 'Học viên'}</p>
+                  </div>
                   {course.schedule_time && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1 ml-auto">
-                      <Clock className="w-3 h-3" />{course.schedule_time}
-                    </span>
+                    <div className="ml-auto flex items-start gap-1 text-right text-xs text-gray-400">
+                      <Clock className="mt-0.5 w-3 h-3 shrink-0" />
+                      <div className="space-y-1">
+                        {scheduleRows(course.schedule_time).map(row => (
+                          <p key={row} className="whitespace-nowrap">{row}</p>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -109,8 +152,8 @@ export const TutorCourseList: React.FC = () => {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-5">
-        <div className="bg-white rounded-3xl p-6 border border-gray-100">
+      <div className="max-w-3xl">
+        <div className="hidden">
           <h2 className="font-extrabold text-gray-900 mb-4">Feedback từ học viên</h2>
           {reviews.length === 0 ? (
             <p className="text-sm text-gray-400">Chưa có feedback nào.</p>
@@ -129,7 +172,6 @@ export const TutorCourseList: React.FC = () => {
             </div>
           )}
         </div>
-
         <div className="bg-white rounded-3xl p-6 border border-gray-100">
           <h2 className="font-extrabold text-gray-900 mb-4">Yêu cầu gia hạn</h2>
           {extensions.length === 0 ? (
@@ -169,24 +211,130 @@ const MATERIAL_TYPES = [
   { value: 'video', label: 'Video', icon: Video },
   { value: 'link',  label: 'Đường dẫn', icon: Link2 },
 ];
+const MAX_UPLOAD_FILES = 5;
 
-const UploadDrawer = ({ session, onClose, onUpload }: any) => {
+const TutorCancellationBox = ({ course, onSubmitted }: any) => {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankBranch, setBankBranch] = useState('');
+  const [qr, setQr] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const pending = course.pending_cancellation_request;
+
+  const submit = async () => {
+    if (!reason.trim()) return;
+    if (!qr && (!bankName.trim() || !bankAccountName.trim() || !bankAccountNumber.trim())) return;
+    const fd = new FormData();
+    fd.append('reason', reason);
+    fd.append('bank_name', bankName);
+    fd.append('bank_account_name', bankAccountName);
+    fd.append('bank_account_number', bankAccountNumber);
+    fd.append('bank_branch', bankBranch);
+    if (qr) fd.append('refund_qr', qr);
+    setSaving(true);
+    try {
+      await coursesApi.requestTutorCancellation(course.id, fd);
+      setOpen(false);
+      await onSubmitted();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-3xl border border-gray-100 bg-white p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-extrabold text-gray-900">Hủy khóa học</h3>
+          <p className="mt-1 text-sm text-gray-500">Gia sư hủy sau khi học viên đã cọc: admin sẽ xử lý hoàn 100% cọc cho học viên.</p>
+          {pending && <p className="mt-2 text-sm font-bold text-amber-600">Đang chờ admin duyệt yêu cầu hủy.</p>}
+        </div>
+        {!pending && course.status !== 'cancelled' && (
+          <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100">
+            <XCircle className="h-4 w-4" /> Hủy khóa
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-5 space-y-3">
+          <textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="Nhập lý do hủy khóa..." className="w-full rounded-xl bg-gray-50 px-4 py-3 text-sm outline-none resize-none" />
+          <div className="grid gap-3 md:grid-cols-2">
+            <input value={bankName} onChange={e => setBankName(e.target.value)} placeholder="Ngân hàng hoàn tiền cho học viên" className="rounded-xl bg-gray-50 px-4 py-3 text-sm outline-none" />
+            <input value={bankAccountNumber} onChange={e => setBankAccountNumber(e.target.value)} placeholder="Số tài khoản học viên" className="rounded-xl bg-gray-50 px-4 py-3 text-sm outline-none" />
+            <input value={bankAccountName} onChange={e => setBankAccountName(e.target.value)} placeholder="Tên chủ tài khoản" className="rounded-xl bg-gray-50 px-4 py-3 text-sm outline-none" />
+            <input value={bankBranch} onChange={e => setBankBranch(e.target.value)} placeholder="Chi nhánh (nếu có)" className="rounded-xl bg-gray-50 px-4 py-3 text-sm outline-none" />
+            <input type="file" accept="image/*" onChange={e => setQr(e.target.files?.[0] || null)} className="md:col-span-2 text-sm" />
+          </div>
+          <button disabled={saving || !reason.trim()} onClick={submit} className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+            {saving ? 'Đang gửi...' : 'Gửi yêu cầu hủy'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const UploadModal = ({ session, onClose, onUpload }: any) => {
   const [type, setType] = useState('note');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileMessage, setFileMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFilesChange = (selected: FileList | null) => {
+    if (!selected || selected.length === 0) return;
+    const picked = Array.from(selected);
+    setFiles(current => {
+      const merged = [...current, ...picked];
+      const unique = merged.filter((file, index, list) =>
+        index === list.findIndex(item =>
+          item.name === file.name && item.size === file.size && item.lastModified === file.lastModified
+        )
+      );
+      setFileMessage(
+        unique.length > MAX_UPLOAD_FILES
+          ? `Chỉ được chọn tối đa ${MAX_UPLOAD_FILES} file. Một số file đã không được thêm.`
+          : `Đã chọn ${unique.length}/${MAX_UPLOAD_FILES} file.`
+      );
+      return unique.slice(0, MAX_UPLOAD_FILES);
+    });
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const removeSelectedFile = (fileIndex: number) => {
+    setFiles(current => current.filter((_, index) => index !== fileIndex));
+    setFileMessage('');
+  };
+
+  const fileAccept = type === 'image' ? 'image/*' : type === 'video' ? 'video/*' : undefined;
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
     setSaving(true);
-    const fd = new FormData();
-    fd.append('material_type', type);
-    fd.append('title', title);
-    if (content) fd.append('content', content);
-    if (file) fd.append('file', file);
-    await onUpload(session.id, fd);
+    const uploadFiles = ['image', 'file', 'video'].includes(type) ? files : [];
+    if (uploadFiles.length > 0) {
+      const batchId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const batchContent = createMaterialBatchContent(batchId, title);
+      for (const item of uploadFiles) {
+        const fd = new FormData();
+        fd.append('material_type', type);
+        fd.append('title', item.name);
+        fd.append('content', batchContent);
+        fd.append('file', item);
+        await onUpload(session.id, fd);
+      }
+    } else {
+      const fd = new FormData();
+      fd.append('material_type', type);
+      fd.append('title', title);
+      if (content) fd.append('content', content);
+      await onUpload(session.id, fd);
+    }
     setSaving(false);
     onClose();
   };
@@ -194,10 +342,11 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
   return (
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50" onClick={onClose} />
-      <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 26, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-full max-w-[480px] bg-white z-[60] flex flex-col shadow-2xl"
+        className="fixed inset-0 bg-slate-900/45 backdrop-blur-sm z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6 pointer-events-none">
+      <motion.div initial={{ opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{ type: 'spring', damping: 24, stiffness: 260 }}
+        className="pointer-events-auto max-h-[92vh] w-full max-w-2xl bg-white rounded-3xl flex flex-col shadow-2xl overflow-hidden"
       >
         <div className="p-6 border-b flex items-center justify-between shrink-0">
           <div>
@@ -215,7 +364,11 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
               {MATERIAL_TYPES.map(({ value, label, icon: Icon }) => (
                 <button
                   key={value}
-                  onClick={() => setType(value)}
+                  onClick={() => {
+                    setType(value);
+                    setFiles([]);
+                    setFileMessage('');
+                  }}
                   className={`flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold transition-all
                     ${type === value ? 'bg-[#5a5ce6] text-white border-[#5a5ce6]' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-[#5a5ce6]'}`}
                 >
@@ -258,25 +411,55 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
                 onClick={() => fileRef.current?.click()}
                 className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center cursor-pointer hover:border-[#5a5ce6] transition-colors"
               >
-                {file ? (
+                {files.length > 0 ? (
                   <div className="text-sm font-semibold text-gray-700">
                     <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                    {file.name}
+                    <p className="mb-2 text-xs font-bold text-[#5a5ce6]">Đã chọn {files.length}/{MAX_UPLOAD_FILES} file</p>
+                    <div className="space-y-1">
+                      {files.map(item => (
+                        <p key={`${item.name}-${item.size}`} className="truncate">{item.name}</p>
+                      ))}
+                    </div>
+                    {files.length < MAX_UPLOAD_FILES && (
+                      <p className="mt-3 text-xs font-bold text-gray-400">Click để chọn thêm file</p>
+                    )}
                   </div>
                 ) : (
                   <>
                     <Upload className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400 font-medium">Click để chọn {type === 'image' ? 'hình ảnh' : type === 'video' ? 'video' : 'file'}</p>
+                    <p className="text-sm text-gray-400 font-medium">Click để chọn tối đa {MAX_UPLOAD_FILES} file</p>
                   </>
                 )}
               </div>
               <input
                 ref={fileRef}
                 type="file"
-                accept={type === 'image' ? 'image/*' : type === 'video' ? 'video/*' : '*'}
+                multiple
+                accept={fileAccept}
                 className="hidden"
-                onChange={e => setFile(e.target.files?.[0] || null)}
+                onChange={e => handleFilesChange(e.currentTarget.files)}
               />
+              {fileMessage && <p className="mt-2 text-xs font-bold text-[#5a5ce6]">{fileMessage}</p>}
+              {files.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {files.map((item, index) => (
+                    <div key={`${item.name}-${item.size}-${item.lastModified}`} className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-gray-700">{item.name}</p>
+                        <p className="text-[11px] font-semibold text-gray-400">{(item.size / 1024 / 1024).toFixed(2)} MB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(index)}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-rose-50 hover:text-rose-500"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -284,7 +467,7 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
         <div className="p-6 border-t bg-gray-50 shrink-0">
           <button
             onClick={handleSubmit}
-            disabled={!title.trim() || saving}
+            disabled={!title.trim() || saving || (['image', 'file', 'video'].includes(type) && files.length === 0)}
             className="w-full py-3.5 bg-[#5a5ce6] text-white rounded-xl font-bold hover:bg-[#4b4de0] transition-all shadow-lg shadow-indigo-100 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Save className="w-5 h-5" />
@@ -292,6 +475,7 @@ const UploadDrawer = ({ session, onClose, onUpload }: any) => {
           </button>
         </div>
       </motion.div>
+      </div>
     </>
   );
 };
@@ -306,6 +490,7 @@ export const TutorCourseDetail: React.FC = () => {
   const [savingNotes, setSavingNotes] = useState(false);
   const [feedbackForm, setFeedbackForm] = useState({ rating: 5, comment: '' });
   const [savingFeedback, setSavingFeedback] = useState(false);
+  const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
   useEffect(() => {
@@ -341,7 +526,7 @@ export const TutorCourseDetail: React.FC = () => {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="font-extrabold text-gray-900 text-lg">{course.title}</h1>
+            <h1 className="font-extrabold text-gray-900 text-lg">{course.student_name || course.title}</h1>
             <p className="text-xs text-[#5a5ce6] font-semibold">{course.subject_name}</p>
           </div>
         </div>
@@ -367,7 +552,7 @@ export const TutorCourseDetail: React.FC = () => {
                 {session.student_completed ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : session.session_number}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm truncate">{session.title || `Buổi ${session.session_number}`}</p>
+                <p className="font-bold text-sm truncate">{sessionTitle(session)}</p>
                 <p className={`text-[10px] font-semibold ${activeSession?.id === session.id ? 'text-white/70' : 'text-gray-400'}`}>
                   {session.materials?.length || 0} tài liệu
                 </p>
@@ -385,15 +570,20 @@ export const TutorCourseDetail: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-5">
+              {course.status === 'cancelled' && (
+                <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+                  Khóa học đã hủy. Tài liệu cũ vẫn được giữ để học viên xem lại.
+                </div>
+              )}
+              <TutorCancellationBox course={course} onSubmitted={fetchDetail} />
               {/* Session header */}
               <div className="bg-white rounded-3xl p-6 border border-gray-100">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h2 className="text-xl font-extrabold text-gray-900">{activeSession.title || `Buổi ${activeSession.session_number}`}</h2>
+                    <h2 className="text-xl font-extrabold text-gray-900">{sessionTitle(activeSession)}</h2>
                     {activeSession.scheduled_date && (
                       <p className="text-sm text-gray-400 flex items-center gap-1 mt-1">
-                        <Clock className="w-3.5 h-3.5" /> {activeSession.scheduled_date}
-                        {activeSession.scheduled_time && ` • ${activeSession.scheduled_time}`}
+                        <Clock className="w-3.5 h-3.5" /> {formatDate(activeSession.scheduled_date)}
                       </p>
                     )}
                   </div>
@@ -442,30 +632,50 @@ export const TutorCourseDetail: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {activeSession.materials.map((mat: any) => {
-                      const Icon = mat.material_type === 'image' ? ImageIcon : mat.material_type === 'video' ? Video : mat.material_type === 'link' ? Link2 : FileText;
+                    {groupSessionMaterials(activeSession.materials).map((group: any) => {
+                      const Icon = group.material_type === 'image' ? ImageIcon : group.material_type === 'video' ? Video : group.material_type === 'link' ? Link2 : FileText;
+                      const mat = group.items[0];
                       return (
-                        <div key={mat.id} className="flex items-start gap-3 p-4 bg-gray-50 rounded-2xl group hover:bg-gray-100 transition-colors">
+                        <div key={group.id} className="flex items-start gap-3 rounded-3xl bg-gray-50 p-5 transition-colors hover:bg-gray-100">
                           <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
                             <Icon className="w-4 h-4 text-indigo-600" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-sm text-gray-800 truncate">{mat.title}</p>
-                            {mat.content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{mat.content}</p>}
-                            <p className="text-[10px] text-gray-400 mt-1">
-                              {mat.upload_status === 'pending' ? 'Đang chờ upload S3' : 'Đã lưu trên S3'}
-                              {mat.file_size ? ` • ${(mat.file_size / 1024 / 1024).toFixed(1)}MB` : ''}
-                            </p>
-                            {mat.material_type === 'image' && mat.file_url && (
-                              <img src={mat.file_url} alt={mat.title} className="mt-2 rounded-xl max-h-40 object-cover" />
-                            )}
+                            <p className="font-bold text-sm text-gray-800 truncate">{group.title}</p>
+                            <p className="mt-1 text-xs font-bold text-gray-400">{group.items.length} file trong lần upload này</p>
+                            {mat.visible_content && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{mat.visible_content}</p>}
                             {mat.material_type === 'video' && mat.file_url && (
                               <video src={mat.file_url} controls className="mt-2 rounded-xl max-h-48 w-full bg-black" />
                             )}
-                            {mat.file_url && mat.material_type !== 'image' && mat.material_type !== 'video' && (
-                              <a href={mat.file_url} target="_blank" rel="noreferrer" className="text-xs font-bold text-indigo-600 mt-2 inline-block">Mở tài liệu</a>
-                            )}
-                            <p className="text-[10px] text-gray-400 mt-1">{new Date(mat.created_at).toLocaleDateString('vi-VN')}</p>
+                            <p className="mt-2 text-sm font-semibold text-gray-500">{formatUploadDateTime(mat.created_at)}</p>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {group.items.map((item: any) => {
+                                const itemUrl = item.download_url || item.file_url;
+                                return (
+                                  <div key={item.id} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                                    <FileText className="h-4 w-4 shrink-0 text-indigo-500" />
+                                    <div className="min-w-0 flex-1">
+                                      {item.material_type === 'image' && itemUrl ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => setImagePreview({ url: itemUrl, title: item.display_title })}
+                                          className="block w-full truncate text-left text-xs font-extrabold text-gray-700 underline-offset-2 hover:text-indigo-600 hover:underline"
+                                        >
+                                          {item.display_title}
+                                        </button>
+                                      ) : itemUrl ? (
+                                        <a href={itemUrl} target="_blank" rel="noreferrer" className="block truncate text-xs font-extrabold text-gray-700 underline-offset-2 hover:text-indigo-600 hover:underline">
+                                          {item.display_title}
+                                        </a>
+                                      ) : (
+                                        <p className="truncate text-xs font-extrabold text-gray-700">{item.display_title}</p>
+                                      )}
+                                      <p className="mt-1 truncate text-[11px] font-semibold text-gray-400">{item.content_type || 'Tài liệu'}</p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                           <button
                             onClick={() => deleteMaterial(activeSession.id, mat.id)}
@@ -528,16 +738,35 @@ export const TutorCourseDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Upload Drawer */}
+      {/* Upload modal */}
       <AnimatePresence>
         {uploadSession && (
-          <UploadDrawer
+          <UploadModal
             session={uploadSession}
             onClose={() => setUploadSession(null)}
             onUpload={uploadMaterial}
           />
         )}
       </AnimatePresence>
+      {imagePreview && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+              <p className="truncate text-sm font-extrabold text-gray-900">{imagePreview.title}</p>
+              <button
+                type="button"
+                onClick={() => setImagePreview(null)}
+                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid max-h-[calc(92vh-57px)] place-items-center overflow-auto bg-slate-950 p-4">
+              <img src={imagePreview.url} alt={imagePreview.title} className="max-h-[80vh] max-w-full rounded-lg object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

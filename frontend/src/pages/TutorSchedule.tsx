@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Plus, Trash2, X } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { bookingsApi } from '../api/bookings';
 import { useToast } from '../components/ui/Toast';
 
@@ -41,6 +41,24 @@ const toDateInput = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+const startOfWeek = (date: Date) => {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  const day = result.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  return result;
+};
+
+const addDays = (date: Date, days: number) => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+};
+
+const formatShortDate = (date: Date) =>
+  date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+
 const localTimezoneOffset = () => {
   const offset = -new Date().getTimezoneOffset();
   const sign = offset >= 0 ? '+' : '-';
@@ -56,6 +74,9 @@ const getSlotDate = (slot: any) => new Date(slot.start_time);
 
 const getSlotTime = (value: string) =>
   new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+const isVisibleTutorSlot = (slot: any) =>
+  slot.status !== 'cancelled' && (!slot.is_system_generated || slot.status === 'booked');
 
 const timeToMinutes = (timeText: string) => {
   const [hour, minute] = timeText.split(':').map(Number);
@@ -74,6 +95,7 @@ const TutorSchedule: React.FC = () => {
   const [slots, setSlots] = useState<any[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -93,20 +115,22 @@ const TutorSchedule: React.FC = () => {
   const groupedSlots = useMemo(() => {
     return weekdays
       .map(day => {
-        const ranges = new Map<string, { startTime: string; endTime: string; ids: number[]; status: string; studentName?: string | null }>();
+        const ranges = new Map<string, { startTime: string; endTime: string; ids: number[]; deletableIds: number[]; hasBooked: boolean }>();
         slots
-          .filter(slot => slot.status !== 'cancelled' && getSlotDate(slot).getDay() === day.value)
+          .filter(slot => isVisibleTutorSlot(slot) && getSlotDate(slot).getDay() === day.value)
           .forEach(slot => {
             const startTime = getSlotTime(slot.start_time);
             const endTime = getSlotTime(slot.end_time);
-            const key = `${slot.status}-${startTime}-${endTime}-${slot.student_name || ''}`;
+            const key = `${startTime}-${endTime}`;
             const current = ranges.get(key);
             ranges.set(key, {
               startTime,
               endTime,
-              status: slot.status,
-              studentName: slot.student_name,
               ids: [...(current?.ids || []), slot.id],
+              hasBooked: Boolean(current?.hasBooked || slot.status === 'booked'),
+              deletableIds: slot.status === 'booked'
+                ? (current?.deletableIds || [])
+                : [...(current?.deletableIds || []), slot.id],
             });
           });
         return {
@@ -116,6 +140,28 @@ const TutorSchedule: React.FC = () => {
       })
       .filter(day => day.ranges.length > 0);
   }, [slots]);
+
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
+    [weekStart],
+  );
+
+  const weeklyTimetable = useMemo(() => {
+    return weekDays.map(date => {
+      const dateText = toDateInput(date);
+      const daySlots = slots
+        .filter(slot => isVisibleTutorSlot(slot) && toDateInput(getSlotDate(slot)) === dateText)
+        .sort((a, b) => getSlotTime(a.start_time).localeCompare(getSlotTime(b.start_time)));
+
+      return {
+        date,
+        label: weekdays.find(item => item.value === date.getDay())?.label || '',
+        slots: daySlots,
+      };
+    });
+  }, [slots, weekDays]);
+
+  const weekEnd = weekDays[6];
 
   const selectedDays = useMemo(
     () => new Set(form.daySlots.map(item => item.day)),
@@ -278,7 +324,8 @@ const TutorSchedule: React.FC = () => {
       </div>
 
       {isFormOpen && (
-        <form onSubmit={createSlots} className="rounded-3xl border border-slate-100 bg-white p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6 backdrop-blur-sm">
+          <form onSubmit={createSlots} className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-extrabold text-slate-900">Tạo lịch dạy mới</h2>
@@ -392,8 +439,104 @@ const TutorSchedule: React.FC = () => {
               </button>
             </div>
           </div>
-        </form>
+          </form>
+        </div>
       )}
+
+      <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white">
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-indigo-600" />
+            <div>
+              <h2 className="font-extrabold text-slate-900">Thời khóa biểu tuần</h2>
+              <p className="text-xs font-semibold text-slate-500">
+                {formatShortDate(weekStart)} - {formatShortDate(weekEnd)}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setWeekStart(current => addDays(current, -7))}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100"
+              title="Tuần trước"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekStart(startOfWeek(new Date()))}
+              className="inline-flex h-10 items-center justify-center rounded-xl bg-indigo-50 px-4 text-sm font-bold text-indigo-600 hover:bg-indigo-100"
+            >
+              Tuần này
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekStart(current => addDays(current, 7))}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100"
+              title="Tuần sau"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        {loading ? (
+          <div className="p-8 text-slate-400">Đang tải thời khóa biểu...</div>
+        ) : (
+          <div className="grid divide-y divide-slate-100 md:grid-cols-7 md:divide-x md:divide-y-0">
+            {weeklyTimetable.map(day => (
+              <div key={toDateInput(day.date)} className="min-h-40 p-4">
+                <div className="mb-3">
+                  <p className="font-extrabold text-slate-900">{day.label}</p>
+                  <p className="text-xs font-semibold text-slate-400">{formatShortDate(day.date)}</p>
+                </div>
+                {day.slots.length === 0 ? (
+                  <p className="rounded-xl bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-400">Trống</p>
+                ) : (
+                  <div className="space-y-2">
+                    {day.slots.map(slot => (
+                      <div
+                        key={slot.id}
+                        className={`rounded-xl border px-3 py-2 text-xs ${
+                          slot.status === 'booked'
+                            ? 'border-indigo-100 bg-indigo-50 text-indigo-900'
+                            : 'border-emerald-100 bg-emerald-50 font-bold text-emerald-700'
+                        }`}
+                      >
+                        <p className="font-extrabold">{getSlotTime(slot.start_time)} - {getSlotTime(slot.end_time)}</p>
+                        {slot.status === 'booked' && (
+                          <div className="mt-2 space-y-1 font-semibold text-slate-600">
+                            <p>
+                              <span className="text-slate-400">Học viên: </span>
+                              <span className="text-indigo-700">{slot.student_name || 'Chưa có tên'}</span>
+                            </p>
+                            <p>
+                              <span className="text-slate-400">Môn: </span>
+                              {slot.booking_subject_name || slot.subject_name || 'Chưa có môn'}
+                            </p>
+                            {slot.student_phone && (
+                              <p>
+                                <span className="text-slate-400">SĐT: </span>
+                                {slot.student_phone}
+                              </p>
+                            )}
+                            {slot.student_address && (
+                              <p className="line-clamp-2">
+                                <span className="text-slate-400">Địa chỉ: </span>
+                                {slot.student_address}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white">
         <div className="flex items-center gap-2 border-b border-slate-100 px-6 py-4">
@@ -413,25 +556,20 @@ const TutorSchedule: React.FC = () => {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {day.ranges.map(range => (
                       <div
-                        key={`${day.value}-${range.status}-${range.startTime}-${range.endTime}-${range.studentName || ''}`}
+                        key={`${day.value}-${range.startTime}-${range.endTime}`}
                         className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${
-                          range.status === 'booked'
+                          range.hasBooked
                             ? 'border-indigo-100 bg-indigo-50'
                             : 'border-emerald-100 bg-emerald-50'
                         }`}
                       >
-                        <span className={`text-sm font-bold ${range.status === 'booked' ? 'text-indigo-700' : 'text-emerald-700'}`}>
+                        <span className={`text-sm font-bold ${range.hasBooked ? 'text-indigo-900' : 'text-emerald-700'}`}>
                           {range.startTime} - {range.endTime}
                         </span>
-                        {range.status === 'booked' && (
-                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-indigo-700">
-                            Đã đặt{range.studentName ? `: ${range.studentName}` : ''}
-                          </span>
-                        )}
-                        {range.status !== 'booked' && (
+                        {range.deletableIds.length > 0 && (
                           <button
                             type="button"
-                            onClick={() => deleteSlotGroup(range.ids)}
+                            onClick={() => deleteSlotGroup(range.deletableIds)}
                             className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
                             title="Xóa mềm khung giờ"
                           >
